@@ -1,0 +1,440 @@
+// GSC Existing-Blog Optimizer — V1 schema
+// Tenancy rule: every business row carries organizationId (+ projectId where applicable).
+// Repositories never query business tables without both.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Identity & tenancy ─────────────────────────
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  EDITOR // can approve/apply
+  VIEWER // read-only
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships  Membership[]
+  sessions     Session[]
+  approvals    OptimizationApproval[]
+  auditLogs    AuditLog[]
+  gscConnections GSCConnection[]
+}
+
+// Refresh-token session. Token is random; only its sha256 is stored. Rotated on every refresh;
+// reuse of a rotated token revokes the whole family (token theft signal).
+model Session {
+  id          String    @id @default(cuid())
+  userId      String
+  familyId    String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  rotatedAt   DateTime?
+  revokedAt   DateTime?
+  userAgent   String?
+  ip          String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  memberships Membership[]
+  projects    Project[]
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           OrgRole
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  websites     Website[]
+  gscConnection GSCConnection?
+
+  @@unique([id, organizationId]) // target for composite tenant FKs
+  @@index([organizationId])
+}
+
+// ───────────────────────── Website & content ─────────────────────────
+
+enum UpdateProviderType {
+  SITE_UPDATE_API // the single V1 update mechanism (customer-hosted, HMAC-signed)
+}
+
+model Website {
+  id             String   @id @default(cuid())
+  organizationId String
+  projectId      String
+  baseUrl        String   // normalized origin, e.g. https://example.com
+  hostname       String   // crawl allow-list (SSRF guard)
+  blogPathPrefix String?  // e.g. "/blog/" — limits discovery to blog pages
+  // Content update provider config (single mechanism in V1)
+  updateProvider         UpdateProviderType @default(SITE_UPDATE_API)
+  updateEndpointUrl      String?  // e.g. https://example.com/_gsc-optimizer (same host as baseUrl)
+  updateSecretEnc        String?  // HMAC secret, AES-256-GCM, never returned by API
+  lastCrawledAt  DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project      Project        @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  pages        ContentPage[]
+  gscProperty  GSCProperty?
+
+  @@unique([projectId, hostname])
+  @@unique([id, projectId, organizationId])
+  @@index([organizationId, projectId])
+}
+
+enum PageStatus {
+  ACTIVE
+  GONE      // 404/410 on latest crawl
+  EXCLUDED  // noindex / robots disallow / non-HTML
+}
+
+model ContentPage {
+  id               String     @id @default(cuid())
+  organizationId   String
+  projectId        String
+  websiteId        String
+  url              String     // normalized absolute URL (matches GSC `page`)
+  canonicalUrl     String?
+  externalId       String?    // site-side page id returned by the Site Update API
+  httpStatus       Int
+  status           PageStatus @default(ACTIVE)
+  currentVersionId String?    @unique
+  currentVersionNo Int        @default(0) // optimistic-concurrency counter
+  lastCrawledAt    DateTime
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  website        Website              @relation(fields: [websiteId, projectId, organizationId], references: [id, projectId, organizationId], onDelete: Cascade)
+  versions       ContentPageVersion[] @relation("PageVersions")
+  currentVersion ContentPageVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  opportunities  OptimizationOpportunity[]
+
+  @@unique([websiteId, url])
+  @@unique([id, websiteId, projectId, organizationId]) // integrity anchor for opportunities
+  @@index([organizationId, projectId])
+}
+
+enum VersionSource {
+  CRAWL         // observed on the live site
+  OPTIMIZATION  // written by an applied proposal
+  PRE_UPDATE    // live snapshot taken immediately before applying
+}
+
+model ContentPageVersion {
+  id              String        @id @default(cuid())
+  organizationId  String
+  pageId          String
+  versionNo       Int
+  source          VersionSource
+  title           String?
+  metaDescription String?
+  h1              String?
+  headings        Json          // [{level:2|3, text}]
+  bodyHtml        String        // main-content HTML
+  bodyText        String
+  wordCount       Int
+  internalLinks   Json          // [{href, text}]
+  contentHash     String        // sha256(title|meta|bodyHtml) — change detection
+  createdAt       DateTime      @default(now())
+  createdByRunId  String?
+
+  page          ContentPage  @relation("PageVersions", fields: [pageId], references: [id], onDelete: Cascade)
+  currentOf     ContentPage? @relation("CurrentVersion")
+
+  @@unique([pageId, versionNo])
+  @@index([organizationId])
+}
+
+// ───────────────────────── Google Search Console ─────────────────────────
+
+model GSCConnection {
+  id              String    @id @default(cuid())
+  organizationId  String
+  projectId       String    @unique
+  connectedById   String
+  googleEmail     String
+  refreshTokenEnc String    // AES-256-GCM (iv:tag:ciphertext)
+  scope           String    // must equal webmasters.readonly
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  connectedBy User    @relation(fields: [connectedById], references: [id])
+  properties  GSCProperty[]
+
+  @@index([organizationId])
+}
+
+enum SyncStatus {
+  IDLE
+  QUEUED
+  RUNNING
+  FAILED
+}
+
+model GSCProperty {
+  id              String     @id @default(cuid())
+  organizationId  String
+  projectId       String
+  connectionId    String
+  websiteId       String     @unique
+  siteUrl         String     // "sc-domain:example.com" or "https://example.com/"
+  permissionLevel String
+  lastSyncedAt    DateTime?
+  lastSyncedDate  DateTime?  @db.Date // last GSC date fetched (incremental sync)
+  syncStatus      SyncStatus @default(IDLE)
+  syncError       String?
+  createdAt       DateTime   @default(now())
+
+  connection GSCConnection        @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  website    Website              @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  analytics  GSCSearchAnalytics[]
+
+  @@index([organizationId, projectId])
+}
+
+// One row per (date, page, query). Page-level totals are computed from a separate
+// page-only fetch row (query = '') because GSC anonymizes queries, so summing
+// query rows under-reports clicks/impressions.
+model GSCSearchAnalytics {
+  id             BigInt   @id @default(autoincrement())
+  organizationId String
+  projectId      String
+  propertyId     String
+  date           DateTime @db.Date
+  page           String   // normalized URL
+  query          String   // '' = page-level total row
+  clicks         Int
+  impressions    Int
+  ctr            Float
+  position       Float
+
+  property GSCProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, date, page, query])
+  @@index([organizationId, projectId, page, date])
+}
+
+// ───────────────────────── Optimization ─────────────────────────
+
+enum OpportunityStatus {
+  DETECTED
+  ANALYZING
+  PROPOSED
+  AWAITING_APPROVAL
+  APPROVED
+  APPLYING
+  APPLIED
+  MEASURING
+  COMPLETED
+  REJECTED
+  FAILED
+  DISMISSED // superseded by a newer detection run while still DETECTED
+}
+
+enum OpportunityType {
+  LOW_CTR_HIGH_IMPRESSIONS
+  STRIKING_DISTANCE      // position 4–15
+  DECLINING_CLICKS
+  DECLINING_CTR
+  WEAK_QUERY_COVERAGE
+}
+
+model OptimizationOpportunity {
+  id              String            @id @default(cuid())
+  organizationId  String
+  projectId       String
+  websiteId       String
+  pageId          String            // NOT NULL + composite FK => page must exist in same website/project/org
+  pageUrl         String
+  pageTitle       String?
+  score           Float
+  opportunityType OpportunityType
+  signals         Json              // per-signal sub-scores
+  evidence        Json              // [{kind, text, metric, value}] deterministic, human-readable
+  gscMetrics      Json              // {window:{start,end}, clicks, impressions, ctr, position, prev:{...}}
+  queries         Json              // top queries snapshot
+  analysis        Json?             // validated PageAnalysis (AI)
+  status          OpportunityStatus @default(DETECTED)
+  failureReason   String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  page      ContentPage            @relation(fields: [pageId, websiteId, projectId, organizationId], references: [id, websiteId, projectId, organizationId], onDelete: Restrict)
+  proposals OptimizationProposal[]
+  runs      OptimizationRun[]
+
+  @@index([organizationId, projectId, status])
+  @@index([pageId])
+}
+
+enum ProposalStatus {
+  AWAITING_APPROVAL
+  APPROVED
+  REJECTED
+  APPLIED
+  SUPERSEDED
+  FAILED
+}
+
+model OptimizationProposal {
+  id              String         @id @default(cuid())
+  organizationId  String
+  projectId       String
+  opportunityId   String
+  pageId          String         // copied from opportunity by backend, never from AI
+  baseVersionId   String         // version the proposal was generated against
+  baseVersionNo   Int
+  summary         String
+  reason          String
+  evidence        Json
+  changes         Json           // ProposalChange[] (see packages/schemas)
+  affectedSections Json          // string[]
+  beforeContent   Json           // {title, metaDescription, bodyHtml}
+  afterContent    Json           // {title, metaDescription, bodyHtml}
+  confidence      Float          // 0..1
+  status          ProposalStatus @default(AWAITING_APPROVAL)
+  editedById      String?        // set when a human edits before approval
+  aiModel         String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  approval    OptimizationApproval?
+  run         OptimizationRun?
+
+  @@index([organizationId, projectId, status])
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
+model OptimizationApproval {
+  id             String           @id @default(cuid())
+  organizationId String
+  proposalId     String           @unique
+  decidedById    String
+  decision       ApprovalDecision
+  comment        String?
+  proposalHash   String           // hash of afterContent at approval time; apply refuses if edited after approval
+  createdAt      DateTime         @default(now())
+
+  proposal  OptimizationProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  decidedBy User                 @relation(fields: [decidedById], references: [id])
+}
+
+enum RunStatus {
+  APPLYING
+  APPLIED
+  FAILED
+}
+
+model OptimizationRun {
+  id                String    @id @default(cuid())
+  organizationId    String
+  projectId         String
+  opportunityId     String
+  proposalId        String    @unique
+  pageId            String
+  previousVersionId String    // PRE_UPDATE snapshot
+  newVersionId      String?   // OPTIMIZATION version
+  status            RunStatus
+  error             String?
+  appliedById       String
+  appliedAt         DateTime?
+  createdAt         DateTime  @default(now())
+
+  opportunity  OptimizationOpportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  proposal     OptimizationProposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  measurements OptimizationMeasurement[]
+
+  @@index([organizationId, projectId])
+}
+
+enum MeasurementKind {
+  BASELINE
+  POST
+}
+
+model OptimizationMeasurement {
+  id             String          @id @default(cuid())
+  organizationId String
+  runId          String
+  kind           MeasurementKind
+  windowStart    DateTime        @db.Date
+  windowEnd      DateTime        @db.Date
+  clicks         Int
+  impressions    Int
+  ctr            Float
+  position       Float
+  queries        Json            // top queries in window
+  dataComplete   Boolean         // false if GSC data for window not yet final
+  capturedAt     DateTime        @default(now())
+
+  run OptimizationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, kind])
+}
+
+// ───────────────────────── Audit ─────────────────────────
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  projectId      String?
+  actorUserId    String?  // null = system/worker
+  action         String   // e.g. proposal.approved, page.updated, gsc.connected
+  entityType     String
+  entityId       String
+  metadata       Json?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  actor User? @relation(fields: [actorUserId], references: [id])
+
+  @@index([organizationId, projectId, createdAt])
+  @@index([entityType, entityId])
+}
