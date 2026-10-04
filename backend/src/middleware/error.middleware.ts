@@ -23,6 +23,10 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     res.status(409).json({ error: { code: 'CONFLICT', message: 'Resource already exists' } });
     return;
   }
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034') {
+    res.status(409).json({ error: { code: 'CONFLICT', message: 'Concurrent update, please retry' } });
+    return;
+  }
   if (err?.type === 'entity.parse.failed') {
     res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Malformed JSON body' } });
     return;

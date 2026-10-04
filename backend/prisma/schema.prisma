@@ -115,6 +115,7 @@ model Website {
 
   project      Project        @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Cascade)
   pages        ContentPage[]
+  crawlJobs    CrawlJob[]
   gscProperty  GSCProperty?
 
   @@unique([projectId, hostname])
@@ -124,8 +125,15 @@ model Website {
 
 enum PageStatus {
   ACTIVE
-  GONE      // 404/410 on latest crawl
-  EXCLUDED  // noindex / robots disallow / non-HTML
+  GONE       // 404/410 on latest crawl
+  EXCLUDED   // noindex / robots disallow / non-HTML
+  REDIRECTED // URL now redirects elsewhere (see redirectedTo)
+  ERROR      // last crawl failed (5xx, timeout, ...); previous version kept
+}
+
+enum ExtractionMethod {
+  HTTP_CHEERIO
+  PLAYWRIGHT
 }
 
 model ContentPage {
@@ -140,7 +148,10 @@ model ContentPage {
   status           PageStatus @default(ACTIVE)
   currentVersionId String?    @unique
   currentVersionNo Int        @default(0) // optimistic-concurrency counter
+  redirectedTo     String?    // normalized target when status = REDIRECTED
+  noindex          Boolean    @default(false)
   lastCrawledAt    DateTime
+  lastCrawlJobId   String?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
@@ -168,21 +179,173 @@ model ContentPageVersion {
   source          VersionSource
   title           String?
   metaDescription String?
+  canonicalUrl    String?
+  language        String?
+  robotsMeta      String?
+  seoMeta         Json          // {og:{...}, twitter:{...}, charset, viewport}
   h1              String?
-  headings        Json          // [{level:2|3, text}]
-  bodyHtml        String        // main-content HTML
+  headings        Json          // [{level, text, order}]
+  sections        Json          // ordered ExtractedSection[] (also normalized into PageSection)
+  bodyHtml        String        // cleaned main-content HTML
   bodyText        String
   wordCount       Int
-  internalLinks   Json          // [{href, text}]
-  contentHash     String        // sha256(title|meta|bodyHtml) — change detection
+  contentHash     String        // sha256 of canonical meaningful content (not raw HTML)
+  rawHtml         String?       // original HTTP response body (source snapshot)
+  renderedHtml    String?       // final DOM when extractionMethod = PLAYWRIGHT
+  extractionMethod ExtractionMethod?
+  crawlerVersion  String?
+  httpStatus      Int?
+  invalidJsonLd   Int           @default(0)
+  crawlJobId      String?
   createdAt       DateTime      @default(now())
   createdByRunId  String?
 
-  page          ContentPage  @relation("PageVersions", fields: [pageId], references: [id], onDelete: Cascade)
-  currentOf     ContentPage? @relation("CurrentVersion")
+  page           ContentPage          @relation("PageVersions", fields: [pageId], references: [id], onDelete: Cascade)
+  currentOf      ContentPage?         @relation("CurrentVersion")
+  pageSections   PageSection[]
+  links          PageLink[]
+  images         PageImage[]
+  structuredData PageStructuredData[]
 
   @@unique([pageId, versionNo])
   @@index([organizationId])
+}
+
+model PageSection {
+  id             String   @id @default(cuid())
+  organizationId String
+  versionId      String
+  sectionKey     String   // stable within a version, e.g. "s2-what-is-react"
+  order          Int
+  heading        String?
+  level          Int      // 0 = intro before first heading
+  html           String
+  text           String
+  wordCount      Int
+  blocks         Json     // [{type:'p'|'ul'|'ol'|'blockquote'|'table'|'pre'|'img', text, items?}]
+
+  version ContentPageVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, order])
+  @@index([organizationId])
+}
+
+model PageLink {
+  id             String   @id @default(cuid())
+  organizationId String
+  versionId      String
+  targetUrl      String
+  anchorText     String
+  isInternal     Boolean
+  inContent      Boolean  // inside the main content area (vs nav/footer)
+  rel            String[]
+  nofollow       Boolean  @default(false)
+
+  version ContentPageVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@index([organizationId, targetUrl])
+}
+
+model PageImage {
+  id             String   @id @default(cuid())
+  organizationId String
+  versionId      String
+  src            String
+  alt            String?  // null = attribute missing; "" = decorative
+  title          String?
+  width          Int?
+  height         Int?
+  inContent      Boolean
+
+  version ContentPageVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+}
+
+model PageStructuredData {
+  id             String   @id @default(cuid())
+  organizationId String
+  versionId      String
+  types          String[] // @type values found in the block
+  data           Json
+
+  version ContentPageVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+}
+
+// ───────────────────────── Crawling ─────────────────────────
+
+enum CrawlStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum CrawlOutcome {
+  CREATED
+  UPDATED
+  UNCHANGED
+  SKIPPED
+  FAILED
+}
+
+model CrawlJob {
+  id                 String      @id @default(cuid())
+  organizationId     String
+  projectId          String
+  websiteId          String
+  requestedById      String?
+  status             CrawlStatus @default(PENDING)
+  discoveryMethod    String?     // "sitemap" | "links"
+  sitemapUrls        Json?       // sitemap files actually read
+  robotsFound        Boolean?
+  config             Json        // limits snapshot
+  pagesDiscovered    Int         @default(0)
+  pagesProcessed     Int         @default(0)
+  pagesSucceeded     Int         @default(0)
+  pagesFailed        Int         @default(0)
+  pagesSkipped       Int         @default(0)
+  pagesCreated       Int         @default(0)
+  pagesUpdated       Int         @default(0)
+  pagesUnchanged     Int         @default(0)
+  renderedPages      Int         @default(0)
+  error              String?
+  cancelRequestedAt  DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime    @default(now())
+
+  website Website           @relation(fields: [websiteId, projectId, organizationId], references: [id, projectId, organizationId], onDelete: Cascade)
+  results CrawlPageResult[]
+
+  @@index([organizationId, projectId, websiteId, createdAt])
+  @@index([status])
+}
+
+model CrawlPageResult {
+  id               String            @id @default(cuid())
+  organizationId   String
+  crawlJobId       String
+  url              String
+  finalUrl         String?
+  outcome          CrawlOutcome
+  httpStatus       Int?
+  extractionMethod ExtractionMethod?
+  errorCode        String?
+  errorMessage     String?
+  durationMs       Int
+  pageId           String?
+  versionId        String?
+  createdAt        DateTime          @default(now())
+
+  crawlJob CrawlJob @relation(fields: [crawlJobId], references: [id], onDelete: Cascade)
+
+  @@index([crawlJobId, outcome])
 }
 
 // ───────────────────────── Google Search Console ─────────────────────────

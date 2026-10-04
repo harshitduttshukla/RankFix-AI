@@ -19,7 +19,8 @@ cp .env.example .env                      # set JWT_ACCESS_SECRET, ENCRYPTION_KE
 npm install
 npx prisma migrate dev
 npm run dev                               # API on http://localhost:4000
-npm run worker                            # background jobs (GSC sync), separate terminal
+npm run worker                            # background jobs (GSC sync, website crawl), separate terminal
+npx playwright install chromium           # once: browser for the JavaScript-rendering fallback
 
 cd ../frontend
 npm install
@@ -36,7 +37,7 @@ cd backend && npm test                    # Vitest + Supertest against the real 
 
 - [x] Phase 1: Foundation (auth, organizations, projects, websites, tenant isolation)
 - [x] Phase 2: Google Search Console (OAuth, properties, sync jobs, performance)
-- [ ] Phase 3: Website crawler
+- [x] Phase 3: Website crawler (robots, sitemaps, SSRF-safe fetch, structured extraction, Playwright fallback, versions)
 - [ ] Phase 4: Opportunity engine
 - [ ] Phase 5: AI (Claude)
 - [ ] Phase 6: Approval

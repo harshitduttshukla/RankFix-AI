@@ -10,3 +10,7 @@ process.env.REDIS_URL = 'redis://localhost:6380/1';
 process.env.GOOGLE_CLIENT_ID = 'test-client-id.apps.googleusercontent.com';
 process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
 process.env.GOOGLE_REDIRECT_URI = 'http://localhost:4000/api/gsc/oauth/callback';
+process.env.CRAWLER_DELAY_MS = '0';
+process.env.CRAWLER_CONCURRENCY = '1';
+process.env.CRAWLER_REQUEST_TIMEOUT_MS = '3000';
+process.env.CRAWLER_MIN_CONTENT_WORDS = '40';

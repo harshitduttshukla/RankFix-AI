@@ -19,8 +19,10 @@
     "@prisma/client": "^6.19.3",
     "argon2": "^0.45.1",
     "bullmq": "^6.3.11",
+    "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
+    "domhandler": "^6.0.1",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
@@ -30,6 +32,9 @@
     "jsonwebtoken": "^9.0.3",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
+    "playwright": "^1.63.0",
+    "robots-parser": "^3.0.1",
+    "undici": "^8.11.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {

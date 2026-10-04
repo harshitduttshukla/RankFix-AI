@@ -1,10 +1,12 @@
 import { prisma } from './config/database.js';
 import { closeRedis } from './config/redis.js';
 import { logger } from './utils/logger.js';
+import { failInterruptedCrawls, startCrawlWorker } from './workers/crawl.worker.js';
 import { startGscWorker } from './workers/gsc.worker.js';
 
-const workers = [startGscWorker()];
-logger.info('Workers started: gsc-sync');
+await failInterruptedCrawls();
+const workers = [startGscWorker(), startCrawlWorker()];
+logger.info('Workers started: gsc-sync, website-crawl');
 
 async function shutdown(signal: string) {
   logger.info(`${signal} received, draining workers`);

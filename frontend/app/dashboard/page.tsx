@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { Button, Card, ErrorText, Field } from "@/components/ui";
 import { useCreateProject, useCreateWebsite, useCurrentProject, useWebsites } from "@/hooks/use-projects";
@@ -61,13 +62,14 @@ function Websites({ project }: { project: ProjectSummary }) {
           {websites.map((w) => (
             <li key={w.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="truncate font-mono text-[12.5px] font-medium">{w.baseUrl}</p>
+                <Link href={`/websites/${w.id}`} className="block truncate font-mono text-[12.5px] font-medium text-ink no-underline hover:text-teal">{w.baseUrl}</Link>
                 <p className="text-[11.5px] text-ink3">
                   Blog path: {w.blogPathPrefix ?? "entire site"} · Update API: {w.hasUpdateSecret ? "configured" : "not configured"}
                 </p>
               </div>
               <span className="text-[11.5px] text-ink3">
-                {w.lastCrawledAt ? `Crawled ${new Date(w.lastCrawledAt).toLocaleDateString()}` : "Not crawled yet"}
+                {w.lastCrawledAt ? `Crawled ${new Date(w.lastCrawledAt).toLocaleDateString()}` : "Not crawled yet"} ·{" "}
+                <Link href={`/websites/${w.id}`}>Pages &amp; crawl →</Link>
               </span>
             </li>
           ))}
