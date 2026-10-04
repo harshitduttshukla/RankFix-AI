@@ -175,7 +175,7 @@ backend/                 Express + TypeScript + Prisma (+ BullMQ from Phase 2)
 frontend/                Next.js + Tailwind + TanStack Query
   app/{login,register,dashboard,optimization/...,settings/gsc}/  lib/  components/  e2e/
 docs/                    DESIGN.md, site-update-api.md
-docker-compose.yml       postgres only for now (redis added when queues land in Phase 2); backend/frontend run locally with npm
+docker-compose.yml       postgres (:5433) + redis (:6380); backend, worker and frontend run locally with npm
 ```
 
 ## 8. Implementation plan

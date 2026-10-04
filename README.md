@@ -7,18 +7,19 @@ Design: [docs/DESIGN.md](docs/DESIGN.md)
 
 - `backend/` Express + TypeScript + Prisma (PostgreSQL)
 - `frontend/` Next.js + Tailwind + TanStack Query
-- `docker-compose.yml` PostgreSQL only (Redis will be added in Phase 2 for BullMQ)
+- `docker-compose.yml` PostgreSQL (localhost:5433) and Redis (localhost:6380)
 
 ## Run locally
 
 ```bash
-docker compose up -d                      # Postgres on localhost:5433 (dev db + gsc_optimizer_test)
+docker compose up -d                      # Postgres :5433 (dev + test db), Redis :6380
 
 cd backend
-cp .env.example .env                      # then set JWT_ACCESS_SECRET and ENCRYPTION_KEY (commands in the file)
+cp .env.example .env                      # set JWT_ACCESS_SECRET, ENCRYPTION_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 npm install
 npx prisma migrate dev
 npm run dev                               # API on http://localhost:4000
+npm run worker                            # background jobs (GSC sync), separate terminal
 
 cd ../frontend
 npm install
@@ -34,7 +35,7 @@ cd backend && npm test                    # Vitest + Supertest against the real 
 ## Status
 
 - [x] Phase 1: Foundation (auth, organizations, projects, websites, tenant isolation)
-- [ ] Phase 2: Google Search Console
+- [x] Phase 2: Google Search Console (OAuth, properties, sync jobs, performance)
 - [ ] Phase 3: Website crawler
 - [ ] Phase 4: Opportunity engine
 - [ ] Phase 5: AI (Claude)
@@ -42,3 +43,10 @@ cd backend && npm test                    # Vitest + Supertest against the real 
 - [ ] Phase 7: Content update (Site Update API)
 - [ ] Phase 8: Measurement
 - [ ] Phase 9: Hardening and E2E
+
+## Google Search Console setup
+
+1. In Google Cloud Console, enable the **Google Search Console API**.
+2. Create an OAuth client of type **Web application** with redirect URI `http://localhost:4000/api/gsc/oauth/callback`.
+3. On the OAuth consent screen, add the scope `.../auth/webmasters.readonly`. While the app is in "Testing", add your Google account as a test user.
+4. Put the client ID and secret in `backend/.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.

@@ -10,7 +10,7 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/optimization/opportunities", label: "Opportunities", soon: true },
   { href: "/optimization/history", label: "History", soon: true },
-  { href: "/settings/gsc", label: "Search Console", soon: true },
+  { href: "/settings/gsc", label: "Search Console" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {

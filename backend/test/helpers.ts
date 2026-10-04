@@ -44,3 +44,7 @@ export async function clientWithProject(name = 'user') {
   const project = (await c.post('/api/projects', { name: `${name} project` }).expect(201)).body;
   return { ...c, project: project as { id: string; organizationId: string } };
 }
+
+export async function stateFromAuthUrl(authUrl: string) {
+  return new URL(authUrl).searchParams.get('state')!;
+}
