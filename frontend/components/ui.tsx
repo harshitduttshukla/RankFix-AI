@@ -1,45 +1,77 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 import { ApiError } from "@/lib/api";
 
-export function Button({ className = "", variant = "primary", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" }) {
-  const styles =
-    variant === "primary"
-      ? "bg-zinc-900 text-white hover:bg-zinc-700 disabled:bg-zinc-400"
-      : "border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-100 disabled:text-zinc-400";
-  return <button className={`rounded-md px-3.5 py-2 text-sm font-medium transition-colors ${styles} ${className}`} {...props} />;
+const BUTTON = {
+  primary: "border-teal bg-teal text-white hover:bg-teal-dark",
+  secondary: "border-line bg-white text-ink hover:bg-[#f5f8f7]",
+  danger: "border-coral-br bg-white text-coral hover:bg-coral-bg",
+};
+
+export function Button({
+  className = "",
+  variant = "primary",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof BUTTON }) {
+  return (
+    <button
+      className={`cursor-pointer rounded-md border px-3 py-1.5 text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${BUTTON[variant]} ${className}`}
+      {...props}
+    />
+  );
 }
 
 export function Field({ label, hint, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
   return (
     <label className="block space-y-1">
-      <span className="text-sm font-medium text-zinc-700">{label}</span>
+      <span className="text-[12.5px] font-medium text-ink2">{label}</span>
       <input
-        className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
+        className="w-full rounded-[5px] border border-line bg-white px-2.5 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink3 focus:border-teal focus:ring-1 focus:ring-teal"
         {...props}
       />
-      {hint && <span className="block text-xs text-zinc-500">{hint}</span>}
+      {hint && <span className="block text-[11.5px] text-ink3">{hint}</span>}
     </label>
   );
 }
 
+export const selectClass = "rounded-[5px] border border-line bg-white px-2 py-1.5 text-[13px] text-ink";
+
 export function Card({ title, action, children }: { title?: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white">
+    <section className="rounded-lg border border-line bg-card">
       {title && (
-        <header className="flex items-center justify-between border-b border-zinc-200 px-5 py-3">
-          <h2 className="text-sm font-semibold">{title}</h2>
+        <header className="flex flex-wrap items-center gap-2.5 border-b border-line2 px-[15px] py-[11px]">
+          <h3 className="min-w-[140px] flex-1">{title}</h3>
           {action}
         </header>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-[15px]">{children}</div>
     </section>
   );
+}
+
+const TONE = {
+  teal: "bg-teal-bg text-teal border-teal-br",
+  coral: "bg-coral-bg text-coral border-coral-br",
+  rest: "bg-rest-bg text-rest border-rest-br",
+};
+export type Tone = keyof typeof TONE;
+
+export function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return (
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11.5px] ${TONE[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+export function Banner({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-[15px] py-[11px] text-[13px] ${TONE[tone]}`}>{children}</div>;
 }
 
 export function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
   const message = error instanceof ApiError ? fieldMessage(error) : "Something went wrong";
-  return <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>;
+  return <Banner tone="coral">{message}</Banner>;
 }
 
 function fieldMessage(err: ApiError) {

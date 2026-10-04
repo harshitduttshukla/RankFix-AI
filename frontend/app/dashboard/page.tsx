@@ -8,14 +8,14 @@ import type { ProjectSummary } from "@/lib/types";
 export default function DashboardPage() {
   const { current, projects, select } = useCurrentProject();
 
-  if (!projects) return <p className="text-sm text-zinc-500">Loading…</p>;
+  if (!projects) return <p className="text-[13px] text-ink3">Loading…</p>;
   if (!current) return <CreateProject onCreated={select} first />;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">{current.name}</h1>
-        <p className="text-sm text-zinc-500">{current.organizationName} · {current.role.toLowerCase()}</p>
+        <h1>{current.name}</h1>
+        <p className="mt-1 text-[13.4px] text-ink2">{current.organizationName} · {current.role.toLowerCase()}</p>
       </div>
       <Websites project={current} />
       <CreateProject onCreated={select} />
@@ -55,25 +55,25 @@ function Websites({ project }: { project: ProjectSummary }) {
     >
       {adding && <AddWebsite projectId={project.id} onDone={() => setAdding(false)} />}
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <p className="text-[13px] text-ink3">Loading…</p>
       ) : websites?.length ? (
-        <ul className="divide-y divide-zinc-100">
+        <ul className="divide-y divide-line2">
           {websites.map((w) => (
             <li key={w.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{w.baseUrl}</p>
-                <p className="text-xs text-zinc-500">
+                <p className="truncate font-mono text-[12.5px] font-medium">{w.baseUrl}</p>
+                <p className="text-[11.5px] text-ink3">
                   Blog path: {w.blogPathPrefix ?? "entire site"} · Update API: {w.hasUpdateSecret ? "configured" : "not configured"}
                 </p>
               </div>
-              <span className="text-xs text-zinc-500">
+              <span className="text-[11.5px] text-ink3">
                 {w.lastCrawledAt ? `Crawled ${new Date(w.lastCrawledAt).toLocaleDateString()}` : "Not crawled yet"}
               </span>
             </li>
           ))}
         </ul>
       ) : (
-        !adding && <p className="text-sm text-zinc-500">No websites yet. Add the site whose existing blog you want to optimize.</p>
+        !adding && <p className="text-[13px] text-ink3">No websites yet. Add the site whose existing blog you want to optimize.</p>
       )}
     </Card>
   );
@@ -98,7 +98,7 @@ function AddWebsite({ projectId, onDone }: { projectId: string; onDone: () => vo
   }
 
   return (
-    <form onSubmit={onSubmit} className="mb-5 space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-4">
+    <form onSubmit={onSubmit} className="mb-5 space-y-3 rounded-md border border-line2 bg-rail p-4">
       <Field label="Website URL" placeholder="https://example.com" required value={form.baseUrl} onChange={set("baseUrl")} />
       <Field label="Blog path prefix" placeholder="/blog/" hint="Optional. Limits page discovery to this path." value={form.blogPathPrefix} onChange={set("blogPathPrefix")} />
       <Field label="Site Update API endpoint" placeholder="https://example.com/_gsc-optimizer" hint="Optional now; needed before applying changes." value={form.updateEndpointUrl} onChange={set("updateEndpointUrl")} />

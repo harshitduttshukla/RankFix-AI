@@ -1,10 +1,61 @@
 @import "tailwindcss";
 
+/* Theme from seo-geo-mockup-v3: paper/ink neutrals; teal = system working, coral = a human holds it, rest = idle. */
 @theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-serif: var(--font-plex-serif), Georgia, serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --color-paper: #ecefed;
+  --color-card: #ffffff;
+  --color-rail: #fafbfa;
+  --color-hover: #f0f2f1;
+  --color-active: #e5eae8;
+  --color-ink: #12171a;
+  --color-ink2: #5c666c;
+  --color-ink3: #8a949a;
+  --color-line: #d6dbd9;
+  --color-line2: #e7eae9;
+
+  --color-coral: #b9463a;
+  --color-coral-bg: #fbebe8;
+  --color-coral-br: #f0d2cc;
+  --color-teal: #15706a;
+  --color-teal-dark: #115c57;
+  --color-teal-bg: #e1efed;
+  --color-teal-br: #c4deda;
+  --color-rest: #6f787d;
+  --color-rest-bg: #f0f2f1;
+  --color-rest-br: #dde2e0;
 }
 
-body {
-  @apply bg-zinc-50 text-zinc-900;
+@layer base {
+  body {
+    @apply bg-paper text-ink font-sans;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-serif font-medium;
+  }
+  h1 {
+    font-size: 25px;
+    letter-spacing: -0.015em;
+  }
+  h2 {
+    font-size: 17px;
+  }
+  h3 {
+    font-size: 14.5px;
+  }
+  a {
+    @apply text-teal;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-teal);
+    outline-offset: 2px;
+  }
 }

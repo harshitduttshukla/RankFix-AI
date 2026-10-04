@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { Button, Card, ErrorText } from "@/components/ui";
+import { Banner, Button, Card, Chip, ErrorText, selectClass, type Tone } from "@/components/ui";
 import {
   useConnectGsc,
   useDisconnectGsc,
@@ -39,14 +39,17 @@ function GscSettings() {
   const params = useSearchParams();
   const error = params.get("error");
 
-  if (!current) return <p className="text-sm text-zinc-500">Create a project on the dashboard first.</p>;
+  if (!current) return <p className="text-[13px] text-ink3">Create a project on the dashboard first.</p>;
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Search Console</h1>
+      <div>
+        <h1>Search Console</h1>
+        <p className="mt-1 max-w-[74ch] text-[13.4px] text-ink2">Read-only access to search performance for your existing pages. Data is synced in the background.</p>
+      </div>
       {params.get("status") === "connected" && (
-        <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Google Search Console connected.</p>
+        <Banner tone="teal">Google Search Console connected.</Banner>
       )}
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{OAUTH_ERRORS[error] ?? "Connecting failed. Please try again."}</p>}
+      {error && <Banner tone="coral">{OAUTH_ERRORS[error] ?? "Connecting failed. Please try again."}</Banner>}
       <Connection project={current} />
     </div>
   );
@@ -59,7 +62,7 @@ function Connection({ project }: { project: ProjectSummary }) {
   const connect = useConnectGsc(project.id);
   const disconnect = useDisconnectGsc(project.id);
 
-  if (!status.data) return <p className="text-sm text-zinc-500">Loading…</p>;
+  if (!status.data) return <p className="text-[13px] text-ink3">Loading…</p>;
   const s = status.data;
 
   return (
@@ -69,7 +72,7 @@ function Connection({ project }: { project: ProjectSummary }) {
         action={
           s.connected && isAdmin(project) ? (
             <Button
-              variant="secondary"
+              variant="danger"
               disabled={disconnect.isPending}
               onClick={() => confirm("Disconnect Search Console? Synced data for this project will be deleted.") && disconnect.mutate()}
             >
@@ -79,12 +82,12 @@ function Connection({ project }: { project: ProjectSummary }) {
         }
       >
         {s.connected ? (
-          <p className="text-sm">
+          <p className="text-[13px]">
             Connected as <span className="font-medium">{s.googleEmail}</span>. Read-only access to Search Console.
           </p>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-zinc-600">
+            <p className="text-[13px] text-ink2">
               {s.revoked
                 ? "Google access was revoked or expired. Reconnect to keep syncing."
                 : "Connect the Google account that has access to your Search Console property. We only request read-only access."}
@@ -94,7 +97,7 @@ function Connection({ project }: { project: ProjectSummary }) {
                 {s.revoked ? "Reconnect Google" : "Connect Google Search Console"}
               </Button>
             ) : (
-              <p className="text-sm text-zinc-500">Ask a project admin to connect Search Console.</p>
+              <p className="text-[13px] text-ink3">Ask a project admin to connect Search Console.</p>
             )}
             <ErrorText error={connect.error ?? disconnect.error} />
           </div>
@@ -114,24 +117,24 @@ function PropertyMapping({ project, mappings }: { project: ProjectSummary; mappi
   const select = useSelectProperty(project.id);
 
   if (!isAdmin(project)) return null;
-  if (!websites?.length) return <Card title="Properties"><p className="text-sm text-zinc-500">Add a website on the dashboard first.</p></Card>;
+  if (!websites?.length) return <Card title="Properties"><p className="text-[13px] text-ink3">Add a website on the dashboard first.</p></Card>;
 
   return (
     <Card title="Map properties to websites">
       <ErrorText error={available.error ?? select.error} />
-      <ul className="divide-y divide-zinc-100">
+      <ul className="divide-y divide-line2">
         {websites.map((w) => {
           const mapped = mappings.find((m) => m.websiteId === w.id);
           const options = available.data?.filter((p) => p.matchingWebsiteIds.includes(w.id)) ?? [];
           return (
             <li key={w.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <span className="truncate text-sm font-medium">{w.baseUrl}</span>
+              <span className="truncate font-mono text-[12.5px] font-medium">{w.baseUrl}</span>
               {available.isLoading ? (
-                <span className="text-sm text-zinc-500">Loading properties…</span>
+                <span className="text-[13px] text-ink3">Loading properties…</span>
               ) : options.length ? (
                 <select
                   aria-label={`Property for ${w.baseUrl}`}
-                  className="max-w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"
+                  className={`max-w-full ${selectClass}`}
                   value={mapped?.siteUrl ?? ""}
                   disabled={select.isPending}
                   onChange={(e) => e.target.value && select.mutate({ websiteId: w.id, siteUrl: e.target.value })}
@@ -144,7 +147,7 @@ function PropertyMapping({ project, mappings }: { project: ProjectSummary; mappi
                   ))}
                 </select>
               ) : (
-                <span className="text-sm text-zinc-500">No verified property in this Google account covers {w.hostname}</span>
+                <span className="text-[13px] text-ink3">No verified property in this Google account covers {w.hostname}</span>
               )}
             </li>
           );
@@ -164,18 +167,18 @@ function PropertySync({ project, mapping }: { project: ProjectSummary; mapping: 
   return (
     <Card title={`${mapping.siteUrl} → ${mapping.website.baseUrl}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm">
+        <div className="text-[13px]">
           <StatusBadge status={mapping.syncStatus} />
-          <span className="ml-2 text-zinc-600">
+          <span className="ml-2 text-ink2">
             Last sync: {fmtDateTime(mapping.lastSyncedAt)}
             {mapping.lastSyncedDate && ` · data through ${mapping.lastSyncedDate}`}
           </span>
-          {mapping.syncError && <p className="mt-1 text-red-700">{mapping.syncError}</p>}
+          {mapping.syncError && <p className="mt-1 text-coral">{mapping.syncError}</p>}
         </div>
         {canSync && (
           <div className="flex items-center gap-2">
             {!mapping.lastSyncedAt && (
-              <select aria-label="History to import" className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+              <select aria-label="History to import" className={selectClass} value={days} onChange={(e) => setDays(Number(e.target.value))}>
                 <option value={28}>28 days</option>
                 <option value={90}>90 days</option>
                 <option value={180}>6 months</option>
@@ -198,21 +201,17 @@ function PropertySync({ project, mapping }: { project: ProjectSummary; mapping: 
 }
 
 function StatusBadge({ status }: { status: GscPropertyMapping["syncStatus"] }) {
-  const styles = {
-    IDLE: "bg-zinc-100 text-zinc-700",
-    QUEUED: "bg-amber-50 text-amber-800",
-    RUNNING: "bg-blue-50 text-blue-800",
-    FAILED: "bg-red-50 text-red-700",
-  }[status];
-  return <span className={`rounded px-2 py-0.5 text-xs font-medium ${styles}`}>{status === "IDLE" ? "Ready" : status.toLowerCase()}</span>;
+  // teal = system working, coral = needs a human, rest = idle
+  const tone: Tone = status === "FAILED" ? "coral" : status === "IDLE" ? "rest" : "teal";
+  return <Chip tone={tone}>{status === "IDLE" ? "Ready" : status.toLowerCase()}</Chip>;
 }
 
 function PerformanceSummary({ data }: { data: NonNullable<ReturnType<typeof useSitePerformance>["data"]> }) {
   const t = data.totals;
   return (
     <div className="mt-5 space-y-4">
-      <p className="text-xs text-zinc-500">
-        {data.window.start} to {data.window.end} (summed across pages)
+      <p className="text-[11.5px] text-ink3">
+        <span className="font-mono">{data.window.start}</span> to <span className="font-mono">{data.window.end}</span> (summed across pages)
       </p>
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
@@ -221,32 +220,32 @@ function PerformanceSummary({ data }: { data: NonNullable<ReturnType<typeof useS
           ["CTR", fmtPct(t.ctr)],
           ["Avg. position", fmtPos(t.position)],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-md border border-zinc-200 p-3">
-            <dt className="text-xs text-zinc-500">{label}</dt>
-            <dd className="text-lg font-semibold tabular-nums">{value}</dd>
+          <div key={label} className="rounded-lg border border-line bg-card px-[13px] py-[11px]">
+            <dt className="text-[11.5px] text-ink3">{label}</dt>
+            <dd className="font-mono text-[23px] tracking-[-0.02em]">{value}</dd>
           </div>
         ))}
       </dl>
       {data.pages.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs text-zinc-500">
+        <div className="overflow-x-auto rounded-lg border border-line">
+          <table className="w-full border-collapse text-left text-[13px]">
+            <thead className="bg-rail text-[11.5px] text-ink3">
               <tr>
-                <th className="py-2 pr-3 font-medium">Top pages</th>
-                <th className="py-2 pr-3 text-right font-medium">Clicks</th>
-                <th className="py-2 pr-3 text-right font-medium">Impr.</th>
-                <th className="py-2 pr-3 text-right font-medium">CTR</th>
-                <th className="py-2 text-right font-medium">Pos.</th>
+                <th className="border-b border-line px-[11px] py-2 font-medium">Top pages</th>
+                <th className="border-b border-line px-[11px] py-2 text-right font-medium">Clicks</th>
+                <th className="border-b border-line px-[11px] py-2 text-right font-medium">Impr.</th>
+                <th className="border-b border-line px-[11px] py-2 text-right font-medium">CTR</th>
+                <th className="border-b border-line px-[11px] py-2 text-right font-medium">Pos.</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 tabular-nums">
+            <tbody className="divide-y divide-line2">
               {data.pages.slice(0, 10).map((p) => (
-                <tr key={p.page}>
-                  <td className="max-w-xs truncate py-2 pr-3" title={p.page}>{new URL(p.page).pathname}</td>
-                  <td className="py-2 pr-3 text-right">{fmtInt(p.clicks)}</td>
-                  <td className="py-2 pr-3 text-right">{fmtInt(p.impressions)}</td>
-                  <td className="py-2 pr-3 text-right">{fmtPct(p.ctr)}</td>
-                  <td className="py-2 text-right">{fmtPos(p.position)}</td>
+                <tr key={p.page} className="hover:bg-rail">
+                  <td className="max-w-xs truncate px-[11px] py-2" title={p.page}>{new URL(p.page).pathname}</td>
+                  <td className="px-[11px] py-2 text-right font-mono text-[12.2px]">{fmtInt(p.clicks)}</td>
+                  <td className="px-[11px] py-2 text-right font-mono text-[12.2px]">{fmtInt(p.impressions)}</td>
+                  <td className="px-[11px] py-2 text-right font-mono text-[12.2px]">{fmtPct(p.ctr)}</td>
+                  <td className="px-[11px] py-2 text-right font-mono text-[12.2px]">{fmtPos(p.position)}</td>
                 </tr>
               ))}
             </tbody>

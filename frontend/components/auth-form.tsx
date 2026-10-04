@@ -26,8 +26,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border border-zinc-200 bg-white p-6">
-        <h1 className="text-lg font-semibold">{mode === "login" ? "Sign in" : "Create your account"}</h1>
+      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border border-line bg-card p-6">
+        <div className="flex items-center gap-2 text-[12px] text-ink3">
+          <span className="h-[9px] w-[9px] rounded-full bg-teal" /> Blog Optimizer
+        </div>
+        <h1>{mode === "login" ? "Sign in" : "Create your account"}</h1>
         {mode === "register" && (
           <Field label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoComplete="name" />
         )}
@@ -46,11 +49,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         <Button type="submit" className="w-full" disabled={mutation.isPending}>
           {mutation.isPending ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
         </Button>
-        <p className="text-center text-sm text-zinc-600">
+        <p className="text-center text-[13px] text-ink2">
           {mode === "login" ? (
-            <>No account? <Link className="underline" href="/register">Create one</Link></>
+            <>No account? <Link className="underline underline-offset-2" href="/register">Create one</Link></>
           ) : (
-            <>Have an account? <Link className="underline" href="/login">Sign in</Link></>
+            <>Have an account? <Link className="underline underline-offset-2" href="/login">Sign in</Link></>
           )}
         </p>
       </form>
