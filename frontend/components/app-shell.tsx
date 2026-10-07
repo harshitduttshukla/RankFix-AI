@@ -12,7 +12,7 @@ const NAV_GROUPS = [
   {
     label: "Optimize",
     items: [
-      { href: "/optimization/opportunities", label: "Opportunities", soon: true },
+      { href: "/optimization/opportunities", label: "Opportunities" },
       { href: "/optimization/history", label: "History", soon: true },
     ],
   },

@@ -3,10 +3,12 @@ import { closeRedis } from './config/redis.js';
 import { logger } from './utils/logger.js';
 import { failInterruptedCrawls, startCrawlWorker } from './workers/crawl.worker.js';
 import { startGscWorker } from './workers/gsc.worker.js';
+import { failInterruptedDetections, startOpportunityWorker } from './workers/opportunity.worker.js';
 
 await failInterruptedCrawls();
-const workers = [startGscWorker(), startCrawlWorker()];
-logger.info('Workers started: gsc-sync, website-crawl');
+await failInterruptedDetections();
+const workers = [startGscWorker(), startCrawlWorker(), startOpportunityWorker()];
+logger.info('Workers started: gsc-sync, website-crawl, opportunity-detect');
 
 async function shutdown(signal: string) {
   logger.info(`${signal} received, draining workers`);

@@ -423,6 +423,7 @@ model GSCSearchAnalytics {
 
 enum OpportunityStatus {
   DETECTED
+  REVIEWED
   ANALYZING
   PROPOSED
   AWAITING_APPROVAL
@@ -433,17 +434,19 @@ enum OpportunityStatus {
   COMPLETED
   REJECTED
   FAILED
-  DISMISSED // superseded by a newer detection run while still DETECTED
+  DISMISSED // by a user, or by the detector when the signal no longer holds (dismissReason)
 }
 
 enum OpportunityType {
-  LOW_CTR_HIGH_IMPRESSIONS
-  STRIKING_DISTANCE      // position 4–15
-  DECLINING_CLICKS
-  DECLINING_CTR
-  WEAK_QUERY_COVERAGE
+  LOW_CTR                     // CTR well below the expected CTR for the page's position
+  PAGE_ONE_NEAR_TOP           // ranking just below the top results with real visibility
+  HIGH_IMPRESSIONS_LOW_CLICKS // very high impressions, low absolute CTR
+  PERFORMANCE_DECLINE         // clicks/CTR down vs the previous window
+  CONTENT_COVERAGE_SIGNAL     // high-impression query terms absent from title/headings
 }
 
+// Deduplication: at most one non-terminal opportunity per (page, type),
+// enforced by a partial unique index in SQL (see migration). Re-detection updates DETECTED/REVIEWED rows in place.
 model OptimizationOpportunity {
   id              String            @id @default(cuid())
   organizationId  String
@@ -452,15 +455,27 @@ model OptimizationOpportunity {
   pageId          String            // NOT NULL + composite FK => page must exist in same website/project/org
   pageUrl         String
   pageTitle       String?
-  score           Float
-  opportunityType OpportunityType
-  signals         Json              // per-signal sub-scores
-  evidence        Json              // [{kind, text, metric, value}] deterministic, human-readable
-  gscMetrics      Json              // {window:{start,end}, clicks, impressions, ctr, position, prev:{...}}
-  queries         Json              // top queries snapshot
-  analysis        Json?             // validated PageAnalysis (AI)
+  type            OpportunityType
+  score           Float             // 0..100
+  scoreBreakdown  Json              // [{component, value, weight, points}]
+  dateRangeStart  DateTime          @db.Date
+  dateRangeEnd    DateTime          @db.Date
+  // Sortable copies of the current-window page totals (full detail lives in `metrics`).
+  clicks          Int
+  impressions     Int
+  ctr             Float
+  position        Float
+  metrics         Json              // {current, previous, expectedCtr, queryCount, ...}
+  evidence        Json              // [{type, metric, value, threshold, comparison, text}]
+  topQueries      Json              // [{query, clicks, impressions, ctr, position}]
+  analysis        Json?             // validated PageAnalysis (AI, Phase 5)
   status          OpportunityStatus @default(DETECTED)
   failureReason   String?
+  dismissReason   String?
+  dismissedById   String?
+  dismissedAt     DateTime?
+  lastDetectedAt  DateTime          @default(now())
+  detectionRunId  String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -468,8 +483,41 @@ model OptimizationOpportunity {
   proposals OptimizationProposal[]
   runs      OptimizationRun[]
 
-  @@index([organizationId, projectId, status])
-  @@index([pageId])
+  @@index([organizationId, projectId, status, score(sort: Desc)])
+  @@index([pageId, type])
+}
+
+enum DetectionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum DetectionTrigger {
+  MANUAL
+  GSC_SYNC
+}
+
+model OpportunityDetectionRun {
+  id              String           @id @default(cuid())
+  organizationId  String
+  projectId       String
+  requestedById   String?
+  trigger         DetectionTrigger
+  status          DetectionStatus  @default(QUEUED)
+  config          Json?            // threshold snapshot used for this run
+  websitesEvaluated Int            @default(0)
+  pagesEvaluated  Int              @default(0)
+  created         Int              @default(0)
+  updated         Int              @default(0)
+  cleared         Int              @default(0)
+  error           String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime         @default(now())
+
+  @@index([organizationId, projectId, createdAt])
 }
 
 enum ProposalStatus {

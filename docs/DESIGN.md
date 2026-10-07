@@ -65,7 +65,7 @@ DETECTED → ANALYZING → PROPOSED → AWAITING_APPROVAL → APPROVED → APPLY
                                    REJECTED → ANALYZING            (regenerate after rejection)
                                    AWAITING_APPROVAL → ANALYZING   (regenerate; old proposal SUPERSEDED)
 ANALYZING | APPLYING | MEASURING → FAILED ;  FAILED → DETECTED (retry)
-DETECTED → DISMISSED (superseded by a newer detection run)
+DETECTED | REVIEWED → DISMISSED (by a user, or by the detector when the signal no longer holds)
 ```
 `PROPOSED` is transient. The proposal is persisted and the status then moves straight to `AWAITING_APPROVAL` in the same transaction.
 
@@ -75,18 +75,7 @@ DETECTED → DISMISSED (superseded by a newer detection run)
 
 **Page matching**: normalize both sides by lowercasing the host, stripping `www.` per the property, dropping the fragment and tracking params (`utm_*`, `gclid`, `fbclid`) and the trailing slash (except root). A GSC row matches only if `ContentPage(websiteId, url)` exists with `status = ACTIVE`. The crawler's canonical URL is also indexed. Unmatched GSC pages are reported as "not crawled" and never turned into opportunities.
 
-**OpportunityDetector** (pure function, unit-tested). Window = last 28 complete days (GSC lag of 3 days), previous = the 28 days before that. Minimum 200 impressions.
-
-```
-expectedCtr(pos)  = position-CTR curve (config table, e.g. 1:28%, 2:15%, 3:11%, 4:8%, 5:6%, … 10:2.5%, 15:1%)
-ctrGap            = clamp((expectedCtr - ctr) / expectedCtr, 0, 1)
-ctrScore          = 35 * ctrGap
-impressionScore   = 25 * clamp(log10(impr) / log10(50_000), 0, 1)
-rankingScore      = 25 * (pos in [4,15] ? 1 - |pos - 8| / 8 : 0)       // peaks around pos 8
-trendScore        = 15 * clamp(max(-Δclicks%, -ΔCTR%) / 50%, 0, 1)
-score             = round(sum, 1)   // 0–100, threshold 30
-```
-`opportunityType` is the dominant signal. Evidence is a set of deterministic template strings, e.g. *"This page received 18,400 impressions in the last 28 days but has a 1.2% CTR (expected ≈ 4.5% at position 7.8)."* Re-detection updates any open opportunity for the page and never duplicates it (one non-terminal opportunity per page).
+**OpportunityDetector** (pure function, unit-tested). Implemented in Phase 4. See [PHASE4_OPPORTUNITIES.md](PHASE4_OPPORTUNITIES.md) for the five opportunity types, the per-type score weights, evidence and deduplication. Window = the last 28 complete days of synced data (GSC lag of 3 days); previous = the 28 days before that. Every threshold is in `services/optimization/opportunity.config.ts`. One non-terminal opportunity per (page, type) is enforced by a partial unique index.
 
 **AI** uses the interface `AiProvider.generateStructured<T>(zodSchema, system, user)`. V1 has one implementation, `ClaudeProvider`, built on `@anthropic-ai/sdk`:
 - **Call:** `client.messages.parse({ model, max_tokens: 16000, thinking: {type:'adaptive'}, output_config: { effort, format: zodOutputFormat(schema) } })`. The response is then re-validated with `schema.safeParse`.
@@ -133,9 +122,10 @@ All bodies are validated with Zod schemas in `backend/src/schemas`. Errors use `
 | POST `/api/projects/:projectId/gsc/sync` | EDITOR | `{days?≤480}` → `202 {jobId}` |
 | GET `/api/projects/:projectId/gsc/performance?pageUrl&start&end` | VIEWER | → `{totals, daily[], queries[]}` |
 | DELETE `/api/projects/:projectId/gsc` | ADMIN | revokes the token at Google, deletes connection |
-| GET `/api/projects/:projectId/optimization/opportunities?status&type&sort&cursor` | VIEWER | → `{items: OpportunityRow[]}` |
-| POST `/api/projects/:projectId/optimization/detect` | EDITOR | → `{created, updated}` (sync; cheap SQL) |
-| GET `…/opportunities/:id` | VIEWER | → `OpportunityDetail {page, currentVersion, gscMetrics, queries, evidence, analysis?, latestProposal?}` |
+| GET `/api/projects/:projectId/optimization/opportunities?status&type&websiteId&limit&offset` | VIEWER | → `{items: OpportunityRow[], total, latestRun}` |
+| POST `/api/projects/:projectId/optimization/opportunities/detect` (alias `/recalculate`) | EDITOR | → `202 DetectionRun` (BullMQ job) |
+| GET `…/opportunities/:id` | VIEWER | → `OpportunityDetail {page, metrics, topQueries, scoreBreakdown, evidence, analysis?}` |
+| POST `…/opportunities/:id/dismiss` | EDITOR | `{reason?}` → `OpportunityDetail` |
 | POST `…/opportunities/:id/analyze` | EDITOR | → `PageAnalysis` (sync, ~20 s; 202 if >25 s) |
 | POST `…/opportunities/:id/proposal` | EDITOR | → `Proposal` (requires analysis) |
 | GET `…/proposals/:id` | VIEWER | → `Proposal & {page, gscMetrics}` |
@@ -152,8 +142,8 @@ Website- and page-scoped routes resolve `website → projectId` first, then run 
 ## 6. API types (`backend/src/schemas`, Zod → `z.infer`)
 
 ```ts
-OpportunityRow     { id, pageUrl, pageTitle, opportunityType, score, impressions, clicks, ctr, position, status }
-Evidence           { kind: 'ctr_gap'|'impressions'|'position'|'trend'|'query', text, metric, value, comparison? }
+OpportunityRow     { id, pageUrl, pageTitle, type, score, impressions, clicks, ctr, position, status, reasons[] }
+Evidence           { type, primary, metric, unit, value, threshold?, comparison?, previousValue?, query?, missingTerms?, text }
 ProposalChange     { type: 'TITLE'|'META_DESCRIPTION'|'SECTION_REWRITE'|'SECTION_EXPAND'|'HEADING'|'INTENT_ALIGNMENT'|'INTERNAL_LINK'|'CLARIFICATION',
                      target: 'title'|'meta'|{sectionId}, before: string, after: string, rationale: string }
 AiProposalOutput   z.object({ summary, reason, changes: ProposalChange[].min(1).max(12), confidence: z.number().min(0).max(1) }).strict()

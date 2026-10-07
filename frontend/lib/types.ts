@@ -184,3 +184,100 @@ export interface PageVersion {
   extractionMethod: ExtractionMethod | null;
   createdAt: string;
 }
+
+export type OpportunityType = "LOW_CTR" | "PAGE_ONE_NEAR_TOP" | "HIGH_IMPRESSIONS_LOW_CLICKS" | "PERFORMANCE_DECLINE" | "CONTENT_COVERAGE_SIGNAL";
+export type OpportunityStatus =
+  | "DETECTED" | "REVIEWED" | "ANALYZING" | "PROPOSED" | "AWAITING_APPROVAL" | "APPROVED" | "APPLYING"
+  | "APPLIED" | "MEASURING" | "COMPLETED" | "REJECTED" | "FAILED" | "DISMISSED";
+
+export interface DetectionRun {
+  id: string;
+  trigger: "MANUAL" | "GSC_SYNC";
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+  websitesEvaluated: number;
+  pagesEvaluated: number;
+  created: number;
+  updated: number;
+  cleared: number;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface OpportunityRow {
+  id: string;
+  websiteId: string;
+  pageId: string;
+  pageUrl: string;
+  pageTitle: string | null;
+  type: OpportunityType;
+  score: number;
+  status: OpportunityStatus;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+  dateRangeStart: string;
+  dateRangeEnd: string;
+  reasons: string[];
+  lastDetectedAt: string;
+}
+
+export interface Evidence {
+  type: string;
+  primary: boolean;
+  metric: string;
+  unit: "count" | "percent" | "position";
+  value: number;
+  threshold?: number;
+  thresholdMax?: number;
+  comparison?: "<" | ">=" | "between";
+  previousValue?: number;
+  query?: string;
+  missingTerms?: string[];
+  text: string;
+}
+
+export interface QueryRow {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number | null;
+}
+
+export interface PeriodMetrics extends Metrics {
+  start: string;
+  end: string;
+}
+
+export interface OpportunityDetail extends Omit<OpportunityRow, "reasons"> {
+  scoreBreakdown: { component: string; value: number; weight: number; points: number }[];
+  metrics: {
+    current: PeriodMetrics;
+    previous: PeriodMetrics;
+    expectedCtr: number | null;
+    queryCount: number;
+    clickChangePercent: number | null;
+    ctrChangePercent: number | null;
+    positionChange: number | null;
+    summary: string;
+  };
+  evidence: Evidence[];
+  topQueries: QueryRow[];
+  dismissReason: string | null;
+  dismissedAt: string | null;
+  page: {
+    id: string;
+    websiteId: string;
+    url: string;
+    status: PageStatus;
+    lastCrawledAt: string;
+    title: string | null;
+    metaDescription: string | null;
+    h1: string | null;
+    wordCount: number | null;
+    versionNo: number | null;
+  };
+}

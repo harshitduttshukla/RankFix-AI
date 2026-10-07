@@ -10,6 +10,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware.js'
 import { globalLimiter } from './middleware/rate-limit.middleware.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { gscOAuthRoutes, projectGscRoutes } from './routes/gsc.routes.js';
+import { optimizationRoutes } from './routes/optimization.routes.js';
 import { projectRoutes } from './routes/projects.routes.js';
 import { websiteRoutes } from './routes/websites.routes.js';
 import { logger } from './utils/logger.js';
@@ -33,6 +34,7 @@ export function createApp() {
   app.use('/api', globalLimiter, csrfProtection);
   app.use('/api/auth', authRoutes);
   app.use('/api/projects/:projectId/gsc', projectGscRoutes);
+  app.use('/api/projects/:projectId/optimization', optimizationRoutes);
   app.use('/api/projects', projectRoutes);
   app.use('/api/gsc', gscOAuthRoutes);
   app.use('/api/websites', websiteRoutes);
