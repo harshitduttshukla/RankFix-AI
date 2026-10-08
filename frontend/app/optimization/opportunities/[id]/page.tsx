@@ -6,10 +6,12 @@ import type { ReactNode } from "react";
 import { PageStatusChip, pathOf } from "@/components/crawl-status";
 import { OpportunityStatusChip, Score, TYPE_HINT, TYPE_LABEL } from "@/components/opportunity";
 import { Button, Card, Chip, ErrorText } from "@/components/ui";
+import { AI_DISCLAIMER, AnalysisPanel, RecommendationCard } from "@/components/review";
 import { useDismissOpportunity, useOpportunity } from "@/hooks/use-opportunities";
+import { useReview, useReviewActions } from "@/hooks/use-review";
 import { useCurrentProject } from "@/hooks/use-projects";
 import { fmtDateTime, fmtInt, fmtPct, fmtPos } from "@/lib/format";
-import type { Evidence, OpportunityDetail, PeriodMetrics } from "@/lib/types";
+import type { Evidence, OpportunityDetail, PeriodMetrics, ReviewPayload } from "@/lib/types";
 
 const COMPONENT_LABEL: Record<string, string> = {
   impressions: "Impressions",
@@ -25,14 +27,19 @@ export default function OpportunityDetailPage() {
   const { current } = useCurrentProject();
   const q = useOpportunity(current?.id, id);
   const dismiss = useDismissOpportunity(current?.id ?? "", id);
+  const review = useReview(current?.id, id);
+  const actions = useReviewActions(current?.id ?? "", id);
   const o = q.data;
-  const canDismiss = current && current.role !== "VIEWER" && o && (o.status === "DETECTED" || o.status === "REVIEWED");
+  const r = review.data;
+  const canEdit = Boolean(current && current.role !== "VIEWER");
+  const canDismiss = canEdit && o && (o.status === "DETECTED" || o.status === "REVIEWED");
+  const canReject = canEdit && o && (o.status === "REVIEWED" || o.status === "PROPOSED");
 
   return (
     <div className="space-y-6">
       <div>
         <p className="mb-1.5 text-[11.5px] text-ink3">
-          <Link href="/optimization/opportunities" className="text-ink3 no-underline hover:text-ink">Opportunities</Link> / {o ? TYPE_LABEL[o.type] : "…"}
+          <Link href="/optimization/opportunities" className="text-ink3 no-underline hover:text-ink">← Back to Opportunities</Link> · {o ? TYPE_LABEL[o.type] : "…"}
         </p>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -44,6 +51,19 @@ export default function OpportunityDetailPage() {
               </p>
             )}
           </div>
+          <div className="flex gap-2">
+          {canReject && (
+            <Button
+              variant="danger"
+              disabled={actions.rejectOpportunity.isPending}
+              onClick={() => {
+                const reason = window.prompt("Reject this opportunity after review? Unapplied proposals will be withdrawn. Optionally add a reason.");
+                if (reason !== null) actions.rejectOpportunity.mutate({ reason: reason.trim() || undefined }, { onSuccess: () => void q.refetch() });
+              }}
+            >
+              Reject opportunity
+            </Button>
+          )}
           {canDismiss && (
             <Button
               variant="secondary"
@@ -56,9 +76,10 @@ export default function OpportunityDetailPage() {
               Dismiss
             </Button>
           )}
+          </div>
         </div>
       </div>
-      <ErrorText error={q.error ?? dismiss.error} />
+      <ErrorText error={q.error ?? dismiss.error ?? actions.rejectOpportunity.error} />
       {o && (
         <>
           <div className="grid gap-[13px] lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -71,6 +92,20 @@ export default function OpportunityDetailPage() {
           </div>
           <EvidenceCard evidence={o.evidence} />
           <Queries o={o} />
+          {r && <PageVersionCard r={r} />}
+          {r && <AnalysisPanel review={r} canEdit={canEdit} actions={actions} />}
+          {r && r.recommendations.length > 0 && (
+            <div className="space-y-3">
+              <div>
+                <h2 className="text-[17px]">Recommendations</h2>
+                <p className="mt-1 text-[12.5px] text-ink2">{AI_DISCLAIMER}</p>
+              </div>
+              {r.recommendations.map((rec) => (
+                <RecommendationCard key={rec.id} rec={rec} review={r} canEdit={canEdit} actions={actions} />
+              ))}
+            </div>
+          )}
+          <ErrorText error={review.error} />
           {o.status === "DISMISSED" && (
             <p className="text-[12.5px] text-ink3">
               Dismissed {fmtDateTime(o.dismissedAt)} — {o.dismissReason === "SIGNAL_CLEARED" ? "the signal no longer held on a later detection run" : (o.dismissReason ?? "")}
@@ -272,6 +307,51 @@ function Queries({ o }: { o: OpportunityDetail }) {
         </div>
       ) : (
         <p className="text-[13px] text-ink3">Search Console reported no individual queries for this page in the period.</p>
+      )}
+    </Card>
+  );
+}
+
+function PageVersionCard({ r }: { r: ReviewPayload }) {
+  const v = r.page.currentVersion;
+  return (
+    <Card title="Current page version">
+      {v ? (
+        <div className="grid gap-5 md:grid-cols-2">
+          <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
+            <dt className="text-ink3">Version</dt>
+            <dd className="m-0 font-mono">v{v.versionNo} <span className="text-[11px] text-ink3">{v.id}</span></dd>
+            <dt className="text-ink3">Crawled</dt>
+            <dd className="m-0">{fmtDateTime(r.page.lastCrawledAt)}</dd>
+            <dt className="text-ink3">Title</dt>
+            <dd className="m-0">{v.title ?? <span className="text-coral">missing</span>}</dd>
+            <dt className="text-ink3">Meta description</dt>
+            <dd className="m-0">{v.metaDescription ?? <span className="text-coral">missing</span>}</dd>
+            <dt className="text-ink3">Words</dt>
+            <dd className="m-0 font-mono">{fmtInt(v.wordCount)}</dd>
+            {r.analysis && (
+              <>
+                <dt className="text-ink3">Analyzed version</dt>
+                <dd className="m-0 font-mono">
+                  v{r.analysis.pageVersionNo ?? "—"} {r.analysis.pageVersionId !== v.id && <Chip tone="coral">differs from current</Chip>}
+                </dd>
+              </>
+            )}
+          </dl>
+          <div>
+            <p className="mb-1.5 text-[11.5px] text-ink3">Outline (H1–H6)</p>
+            <ol className="max-h-60 space-y-0.5 overflow-auto text-[12.5px]">
+              {v.headings.map((h) => (
+                <li key={h.order} style={{ paddingLeft: `${(h.level - 1) * 12}px` }} className="flex gap-2">
+                  <span className="w-6 shrink-0 font-mono text-[10.5px] text-ink3">H{h.level}</span>
+                  <span>{h.text}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      ) : (
+        <p className="text-[13px] text-ink3">This page has no crawled content yet. Crawl the website before running AI analysis.</p>
       )}
     </Card>
   );

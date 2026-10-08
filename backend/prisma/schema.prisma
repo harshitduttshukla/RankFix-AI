@@ -206,6 +206,7 @@ model ContentPageVersion {
   links          PageLink[]
   images         PageImage[]
   structuredData PageStructuredData[]
+  proposals      OptimizationProposal[]
 
   @@unique([pageId, versionNo])
   @@index([organizationId])
@@ -472,6 +473,9 @@ model OptimizationOpportunity {
   status          OpportunityStatus @default(DETECTED)
   failureReason   String?
   dismissReason   String?
+  rejectionReason String?           // human rejected the opportunity after review (Phase 6)
+  reviewedById    String?
+  reviewedAt      DateTime?
   dismissedById   String?
   dismissedAt     DateTime?
   lastDetectedAt  DateTime          @default(now())
@@ -484,6 +488,7 @@ model OptimizationOpportunity {
   runs      OptimizationRun[]
   aiRuns    AIAnalysisRun[]
   analyses  OpportunityAnalysis[]
+  reviews   RecommendationReview[]
 
   @@index([organizationId, projectId, status, score(sort: Desc)])
   @@index([pageId, type])
@@ -531,33 +536,59 @@ enum ProposalStatus {
   FAILED
 }
 
+enum ProposalChangeType {
+  TITLE
+  META_DESCRIPTION
+  H1
+  SECTION_HEADING // heading of an existing section (targetSection)
+  SECTION_CONTENT // text of an existing section (targetSection)
+}
+
+enum ProposalSource {
+  AI_RECOMMENDATION // proposal derived from an unedited AI recommendation
+  HUMAN_EDITED      // derived from a recommendation a human edited
+}
+
+// A concrete, human-reviewed change bound to the exact page version that was analyzed.
+// Source values (changeType, target, currentValue, proposedValue, pageVersionId) are never edited after creation;
+// a different change is a new revision that SUPERSEDES the previous one.
 model OptimizationProposal {
-  id              String         @id @default(cuid())
-  organizationId  String
-  projectId       String
-  opportunityId   String
-  pageId          String         // copied from opportunity by backend, never from AI
-  baseVersionId   String         // version the proposal was generated against
-  baseVersionNo   Int
-  summary         String
-  reason          String
-  evidence        Json
-  changes         Json           // ProposalChange[] (see packages/schemas)
-  affectedSections Json          // string[]
-  beforeContent   Json           // {title, metaDescription, bodyHtml}
-  afterContent    Json           // {title, metaDescription, bodyHtml}
-  confidence      Float          // 0..1
-  status          ProposalStatus @default(AWAITING_APPROVAL)
-  editedById      String?        // set when a human edits before approval
-  aiModel         String
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id                       String             @id @default(cuid())
+  organizationId           String
+  projectId                String
+  websiteId                String
+  opportunityId            String
+  recommendationReviewId   String
+  analysisId               String
+  pageId                   String
+  pageVersionId            String             // the analyzed ContentPageVersion
+  changeType               ProposalChangeType
+  targetSection            String?            // sectionKey for SECTION_* changes
+  currentValue             String?            // read from pageVersionId by the backend, never from the client
+  proposedValue            String
+  source                   ProposalSource
+  revision                 Int                @default(1)
+  supersedesId             String?
+  status                   ProposalStatus     @default(AWAITING_APPROVAL)
+  createdById              String
+  approvedById             String?
+  approvedAt               DateTime?
+  approvedAgainstVersionId String?            // page.currentVersionId at approval (must equal pageVersionId)
+  rejectedById             String?
+  rejectedAt               DateTime?
+  rejectionReason          String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
 
   opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  review      RecommendationReview    @relation(fields: [recommendationReviewId], references: [id], onDelete: Cascade)
+  pageVersion ContentPageVersion      @relation(fields: [pageVersionId], references: [id], onDelete: Restrict)
   approval    OptimizationApproval?
   run         OptimizationRun?
 
   @@index([organizationId, projectId, status])
+  @@index([opportunityId])
+  @@index([recommendationReviewId])
 }
 
 enum ApprovalDecision {
@@ -707,10 +738,61 @@ model OpportunityAnalysis {
   contextVersion String
   analysis       Json     // OpportunityAnalysis (observations, searchIntent, contentGaps, ...)
   recommendations Json    // Recommendation[]
+  evidenceSnapshot Json?  // opportunity metrics at analysis time, for deterministic staleness (Phase 6)
+  staleAt        DateTime?
+  staleReason    String?  // PAGE_VERSION_CHANGED | EVIDENCE_CHANGED | NO_PAGE_VERSION
   createdAt      DateTime @default(now())
 
   opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   run         AIAnalysisRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+  reviews     RecommendationReview[]
 
   @@index([organizationId, projectId, opportunityId, createdAt])
+}
+
+// ───────────────────────── Human review (Phase 6) ─────────────────────────
+
+enum RecommendationReviewStatus {
+  PENDING
+  EDITED   // a human changed the recommendation; still awaiting a decision
+  APPROVED // turned into a concrete proposal
+  REJECTED
+}
+
+enum RecommendationRejectionReason {
+  NOT_RELEVANT
+  INCORRECT
+  ALREADY_ADDRESSED
+  NOT_WORTH_CHANGING
+  OTHER
+}
+
+// Human decision on one recommendation of one analysis. The AI original is copied in and never changed;
+// a human edit is stored alongside it.
+model RecommendationReview {
+  id                  String                         @id @default(cuid())
+  organizationId      String
+  projectId           String
+  websiteId           String
+  opportunityId       String
+  analysisId          String
+  recommendationIndex Int
+  original            Json                           // AI recommendation as produced (immutable)
+  edited              Json?                          // human-edited version
+  editedById          String?
+  editedAt            DateTime?
+  status              RecommendationReviewStatus     @default(PENDING)
+  reviewedById        String?
+  reviewedAt          DateTime?
+  rejectionReason     RecommendationRejectionReason?
+  rejectionNote       String?
+  createdAt           DateTime                       @default(now())
+  updatedAt           DateTime                       @updatedAt
+
+  opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  analysis    OpportunityAnalysis     @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  proposals   OptimizationProposal[]
+
+  @@unique([analysisId, recommendationIndex])
+  @@index([organizationId, projectId, opportunityId])
 }

@@ -40,7 +40,7 @@ cd backend && npm test                    # Vitest + Supertest against the real 
 - [x] Phase 3: Website crawler (robots, sitemaps, SSRF-safe fetch, structured extraction, Playwright fallback, versions)
 - [x] Phase 4: Opportunity engine (deterministic signals, scoring, evidence, background detection) — [docs](docs/PHASE4_OPPORTUNITIES.md)
 - [x] Phase 5: AI analysis & recommendations (Claude via AIProvider, structured output, grounding checks, background jobs) — [docs](docs/PHASE5_AI.md)
-- [ ] Phase 6: Approval
+- [x] Phase 6: Human approval (recommendation review, concrete page-version-bound proposals, stale detection, audit) — [docs](docs/PHASE6_REVIEW.md)
 - [ ] Phase 7: Content update (Site Update API)
 - [ ] Phase 8: Measurement
 - [ ] Phase 9: Hardening and E2E

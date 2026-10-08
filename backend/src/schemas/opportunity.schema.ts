@@ -6,7 +6,7 @@ export const OPPORTUNITY_TYPES = ['LOW_CTR', 'PAGE_ONE_NEAR_TOP', 'HIGH_IMPRESSI
 export const OpportunityParams = z.object({ projectId: Id, id: Id });
 
 export const OpportunitiesQuery = z.object({
-  /** open = DETECTED + REVIEWED (default); all = every status. */
+  /** open = DETECTED + REVIEWED + PROPOSED (default); all = every status. */
   status: z.enum(['open', 'dismissed', 'all']).default('open'),
   type: z.enum(OPPORTUNITY_TYPES).optional(),
   websiteId: Id.optional(),

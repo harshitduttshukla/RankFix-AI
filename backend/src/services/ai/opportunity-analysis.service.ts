@@ -2,7 +2,8 @@ import { UnrecoverableError } from 'bullmq';
 import { enqueueAIAnalysis } from '../../queues/ai-analysis.queue.js';
 import { aiAnalysisRepository } from '../../repositories/ai-analysis.repository.js';
 import { auditRepository } from '../../repositories/audit.repository.js';
-import { opportunityRepository, REFRESHABLE } from '../../repositories/opportunity.repository.js';
+import type { OpportunityStatus } from '@prisma/client';
+import { opportunityRepository } from '../../repositories/opportunity.repository.js';
 import type { TenantContext } from '../../types/tenant.js';
 import { AppError, notFound } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
@@ -11,6 +12,9 @@ import { checkAnalysis, checkRecommendations } from './ai.guardrails.js';
 import { aiProvider } from './ai.provider.js';
 import { buildAIContext, CONTEXT_VERSION } from './ai-context.builder.js';
 import { ANALYSIS_PROMPT_VERSION } from './prompts/index.js';
+
+/** Open opportunities, including ones with proposals (re-analysis after a page change). */
+export const ANALYZABLE: OpportunityStatus[] = ['DETECTED', 'REVIEWED', 'PROPOSED'];
 
 /*
  * Phase 5: AI analysis of a detected opportunity, for human review. Reads stored data, calls the AIProvider,
@@ -22,7 +26,7 @@ export const opportunityAnalysisService = {
   async request(tenant: TenantContext, opportunityId: string) {
     const opp = await opportunityRepository.find(tenant, opportunityId);
     if (!opp) throw notFound('Opportunity');
-    if (!REFRESHABLE.includes(opp.status)) {
+    if (!ANALYZABLE.includes(opp.status)) {
       throw new AppError('INVALID_STATE_TRANSITION', `Only open opportunities can be analyzed (status is ${opp.status})`);
     }
 
@@ -107,7 +111,7 @@ export async function runAIAnalysis(runId: string, attempt = 1) {
   try {
     // Fresh context, built from the run's own tenant scope.
     const context = await buildAIContext(scope, run.opportunityId);
-    if (!REFRESHABLE.includes(context.opportunity.status as (typeof REFRESHABLE)[number])) {
+    if (!ANALYZABLE.includes(context.opportunity.status as OpportunityStatus)) {
       throw new AIError('CONTEXT_UNAVAILABLE', `Opportunity is no longer open (${context.opportunity.status})`, false);
     }
     const provider = aiProvider();
@@ -130,6 +134,14 @@ export async function runAIAnalysis(runId: string, attempt = 1) {
       pageVersionId: context.page.content?.versionId ?? null,
       analysis: analysis.output,
       recommendations: recs.output,
+      evidenceSnapshot: {
+        dateRangeEnd: context.opportunity.dateRange.end,
+        score: context.opportunity.score,
+        clicks: context.opportunity.metrics.current.clicks,
+        impressions: context.opportunity.metrics.current.impressions,
+        ctr: context.opportunity.metrics.current.ctr,
+        position: context.opportunity.metrics.current.position,
+      },
       latencyMs: analysis.latencyMs + recs.latencyMs,
       inputTokens: tokens.input,
       outputTokens: tokens.output,

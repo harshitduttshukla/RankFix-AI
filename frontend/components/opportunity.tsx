@@ -18,7 +18,7 @@ export const TYPE_HINT: Record<OpportunityType, string> = {
 };
 
 // coral = needs a human decision · rest = settled
-const STATUS_TONE: Partial<Record<OpportunityStatus, Tone>> = { DETECTED: "coral", REVIEWED: "coral", DISMISSED: "rest" };
+const STATUS_TONE: Partial<Record<OpportunityStatus, Tone>> = { DETECTED: "coral", REVIEWED: "coral", PROPOSED: "teal", DISMISSED: "rest", REJECTED: "rest" };
 
 export const TypeChip = ({ type }: { type: OpportunityType }) => <Chip tone="rest">{TYPE_LABEL[type]}</Chip>;
 export const OpportunityStatusChip = ({ status }: { status: OpportunityStatus }) => (

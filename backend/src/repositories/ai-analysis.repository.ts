@@ -78,6 +78,7 @@ export const aiAnalysisRepository = {
       pageVersionId: string | null;
       analysis: unknown;
       recommendations: unknown;
+      evidenceSnapshot?: unknown;
       latencyMs: number;
       inputTokens: number | null;
       outputTokens: number | null;
@@ -112,6 +113,7 @@ export const aiAnalysisRepository = {
           contextVersion: data.contextVersion,
           analysis: json(data.analysis),
           recommendations: json(data.recommendations),
+          ...(data.evidenceSnapshot ? { evidenceSnapshot: json(data.evidenceSnapshot) } : {}),
         },
       });
     });
