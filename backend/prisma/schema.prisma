@@ -482,6 +482,8 @@ model OptimizationOpportunity {
   page      ContentPage            @relation(fields: [pageId, websiteId, projectId, organizationId], references: [id, websiteId, projectId, organizationId], onDelete: Restrict)
   proposals OptimizationProposal[]
   runs      OptimizationRun[]
+  aiRuns    AIAnalysisRun[]
+  analyses  OpportunityAnalysis[]
 
   @@index([organizationId, projectId, status, score(sort: Desc)])
   @@index([pageId, type])
@@ -648,4 +650,67 @@ model AuditLog {
 
   @@index([organizationId, projectId, createdAt])
   @@index([entityType, entityId])
+}
+
+// ───────────────────────── AI analysis (Phase 5) ─────────────────────────
+
+enum AIRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// One execution of AI analysis for an opportunity. Never stores secrets or the full prompt.
+model AIAnalysisRun {
+  id             String      @id @default(cuid())
+  organizationId String
+  projectId      String
+  websiteId      String
+  opportunityId  String
+  requestedById  String?
+  provider       String      // e.g. "anthropic"
+  model          String
+  promptVersion  String      // e.g. "opportunity-analysis-v1+recommendation-v1"
+  contextVersion String
+  status         AIRunStatus @default(QUEUED)
+  attempts       Int         @default(0)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  latencyMs      Int?
+  inputTokens    Int?
+  outputTokens   Int?
+  errorCode      String?     // AI_OUTPUT_INVALID | AI_REFUSED | PROVIDER_ERROR | ...
+  errorMessage   String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  analysis    OpportunityAnalysis?
+
+  @@index([organizationId, projectId, opportunityId, createdAt])
+  @@index([status])
+}
+
+// A validated AI analysis + recommendations for human review. Only written after schema and guardrail checks pass.
+model OpportunityAnalysis {
+  id             String   @id @default(cuid())
+  organizationId String
+  projectId      String
+  websiteId      String
+  opportunityId  String
+  runId          String   @unique
+  pageVersionId  String?  // content version the analysis was based on
+  provider       String
+  model          String
+  promptVersion  String
+  contextVersion String
+  analysis       Json     // OpportunityAnalysis (observations, searchIntent, contentGaps, ...)
+  recommendations Json    // Recommendation[]
+  createdAt      DateTime @default(now())
+
+  opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  run         AIAnalysisRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, projectId, opportunityId, createdAt])
 }

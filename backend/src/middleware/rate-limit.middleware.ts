@@ -23,3 +23,13 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   handler,
 });
+
+/** Per-project cap on paid AI requests. Keyed by project (resolved tenant), not IP. Must run after requireProjectAccess. */
+export const aiLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  limit: process.env.NODE_ENV === 'test' ? 1000 : 60,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  keyGenerator: (req) => `ai:${req.tenant?.projectId ?? 'unknown'}`,
+  handler,
+});

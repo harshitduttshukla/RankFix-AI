@@ -15,11 +15,11 @@ Design: [docs/DESIGN.md](docs/DESIGN.md)
 docker compose up -d                      # Postgres :5433 (dev + test db), Redis :6380
 
 cd backend
-cp .env.example .env                      # set JWT_ACCESS_SECRET, ENCRYPTION_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+cp .env.example .env                      # set JWT_ACCESS_SECRET, ENCRYPTION_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET (+ ANTHROPIC_API_KEY, AI_MODEL for AI analysis)
 npm install
 npx prisma migrate dev
 npm run dev                               # API on http://localhost:4000
-npm run worker                            # background jobs (GSC sync, website crawl, opportunity detection), separate terminal
+npm run worker                            # background jobs (GSC sync, website crawl, opportunity detection, AI analysis), separate terminal
 npx playwright install chromium           # once: browser for the JavaScript-rendering fallback
 
 cd ../frontend
@@ -39,7 +39,7 @@ cd backend && npm test                    # Vitest + Supertest against the real 
 - [x] Phase 2: Google Search Console (OAuth, properties, sync jobs, performance)
 - [x] Phase 3: Website crawler (robots, sitemaps, SSRF-safe fetch, structured extraction, Playwright fallback, versions)
 - [x] Phase 4: Opportunity engine (deterministic signals, scoring, evidence, background detection) — [docs](docs/PHASE4_OPPORTUNITIES.md)
-- [ ] Phase 5: AI (Claude)
+- [x] Phase 5: AI analysis & recommendations (Claude via AIProvider, structured output, grounding checks, background jobs) — [docs](docs/PHASE5_AI.md)
 - [ ] Phase 6: Approval
 - [ ] Phase 7: Content update (Site Update API)
 - [ ] Phase 8: Measurement
@@ -51,3 +51,5 @@ cd backend && npm test                    # Vitest + Supertest against the real 
 2. Create an OAuth client of type **Web application** with redirect URI `http://localhost:4000/api/gsc/oauth/callback`.
 3. On the OAuth consent screen, add the scope `.../auth/webmasters.readonly`. While the app is in "Testing", add your Google account as a test user.
 4. Put the client ID and secret in `backend/.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+
+

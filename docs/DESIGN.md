@@ -126,7 +126,8 @@ All bodies are validated with Zod schemas in `backend/src/schemas`. Errors use `
 | POST `/api/projects/:projectId/optimization/opportunities/detect` (alias `/recalculate`) | EDITOR | → `202 DetectionRun` (BullMQ job) |
 | GET `…/opportunities/:id` | VIEWER | → `OpportunityDetail {page, metrics, topQueries, scoreBreakdown, evidence, analysis?}` |
 | POST `…/opportunities/:id/dismiss` | EDITOR | `{reason?}` → `OpportunityDetail` |
-| POST `…/opportunities/:id/analyze` | EDITOR | → `PageAnalysis` (sync, ~20 s; 202 if >25 s) |
+| POST `…/opportunities/:id/analyze` | EDITOR | → `202 AIAnalysisRun` (BullMQ job; see [PHASE5_AI.md](PHASE5_AI.md)) |
+| GET `…/opportunities/:id/analysis` | VIEWER | → `{latestRun, analysis}` |
 | POST `…/opportunities/:id/proposal` | EDITOR | → `Proposal` (requires analysis) |
 | GET `…/proposals/:id` | VIEWER | → `Proposal & {page, gscMetrics}` |
 | PATCH `…/proposals/:id` | EDITOR | `{changes}` → `Proposal` (re-validated, rebuilt afterContent) |

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { opportunityController } from '../controllers/opportunity.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
 import { requireProjectAccess } from '../middleware/project-access.middleware.js';
+import { aiLimiter } from '../middleware/rate-limit.middleware.js';
 import { validate } from '../middleware/validation.middleware.js';
 import { DismissBody, OpportunitiesQuery, OpportunityParams } from '../schemas/opportunity.schema.js';
 import { ProjectParams } from '../schemas/project.schema.js';
@@ -23,3 +24,14 @@ optimizationRoutes.post(
   validate({ params: OpportunityParams, body: DismissBody }),
   opportunityController.dismiss,
 );
+
+// Phase 5: AI analysis (queued; results go to human review, never applied automatically).
+optimizationRoutes.post(
+  `${opp}/:id/analyze`,
+  requireProjectAccess('EDITOR'),
+  validate({ params: OpportunityParams }),
+  aiLimiter,
+  opportunityController.analyze,
+);
+optimizationRoutes.get(`${opp}/:id/analysis`, requireProjectAccess('VIEWER'), validate({ params: OpportunityParams }), opportunityController.analysis);
+
