@@ -12,7 +12,7 @@ await failInterruptedDetections();
 await failInterruptedAIAnalyses();
 const workers = [startGscWorker(), startCrawlWorker(), startOpportunityWorker(), startAIAnalysisWorker()];
 logger.info('Workers started: gsc-sync, website-crawl, opportunity-detect, ai-analysis');
-if (!isAiConfigured()) logger.warn('AI analysis is not configured (ANTHROPIC_API_KEY / AI_MODEL); analysis jobs will fail');
+if (!isAiConfigured()) logger.warn('AI analysis is not configured (provider key / AI_MODEL); analysis jobs will fail');
 
 async function shutdown(signal: string) {
   logger.info(`${signal} received, draining workers`);

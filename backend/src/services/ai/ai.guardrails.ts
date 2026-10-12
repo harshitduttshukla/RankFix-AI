@@ -9,11 +9,27 @@ import type { OpportunityAnalysis, RecommendationSet } from './ai.schemas.js';
 /** Promissory or certain causal wording the product must never show. */
 const FORBIDDEN = [
   /\bwill (?:increase|improve|boost|raise|grow|lift|double|fix)\b/i,
-  /\bguarantee[sd]?\b/i,
+  /\bwill result in\b/i,
   /\bdefinitely\b/i,
+  /\bcertain to\b/i,
   /\bcertainly (?:will|is|caused)\b/i,
   /\bthis is (?:the|why) (?:reason|cause)\b/i,
 ];
+
+/**
+ * "guarantee(s/d)" is rejected unless clearly negated by the words right before it, so disclaimers such as
+ * "not guaranteed", "no guarantee", "cannot guarantee" or "results are not guaranteed" pass while
+ * "guaranteed to", "this guarantees" or "a guaranteed increase" do not.
+ */
+const GUARANTEE = /\bguarantee[sd]?\b/gi;
+const NEGATION_BEFORE = /\b(?:not|no|never|cannot|can't|can not|without|isn't|aren't|won't|doesn't|don't)(?:\s+(?:a|an|be|been|any))?\s*$/i;
+
+function unnegatedGuarantee(s: string): boolean {
+  for (const m of s.matchAll(GUARANTEE)) {
+    if (!NEGATION_BEFORE.test(s.slice(0, m.index).trimEnd())) return true;
+  }
+  return false;
+}
 
 const norm = (q: string) => q.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -25,7 +41,10 @@ function strings(value: unknown, out: string[] = []): string[] {
 }
 
 function forbiddenLanguage(value: unknown): string[] {
-  return strings(value).flatMap((s) => FORBIDDEN.filter((re) => re.test(s)).map((re) => `forbidden wording ${re} in "${s.slice(0, 80)}"`));
+  return strings(value).flatMap((s) => [
+    ...FORBIDDEN.filter((re) => re.test(s)).map((re) => `forbidden wording ${re} in "${s.slice(0, 80)}"`),
+    ...(unnegatedGuarantee(s) ? [`forbidden wording: un-negated "guarantee" in "${s.slice(0, 80)}"`] : []),
+  ]);
 }
 
 export function checkAnalysis(ctx: AIContext, a: OpportunityAnalysis): string[] {

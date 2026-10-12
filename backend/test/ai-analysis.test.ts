@@ -8,7 +8,9 @@ import { setAIProvider } from '../src/services/ai/ai.provider.js';
 import { buildAIContext, CONTEXT_LIMITS } from '../src/services/ai/ai-context.builder.js';
 import { runAIAnalysis } from '../src/services/ai/opportunity-analysis.service.js';
 import { startAIAnalysisWorker } from '../src/workers/ai-analysis.worker.js';
-import { FakeAI, validAnalysis } from './ai-fixtures.js';
+import { GeminiProvider } from '../src/services/ai/gemini.provider.js';
+import { OpenRouterProvider } from '../src/services/ai/openrouter.provider.js';
+import { FakeAI, validAnalysis, validRecommendations } from './ai-fixtures.js';
 import { client, clientWithProject, resetDb } from './helpers.js';
 
 let fake: FakeAI;
@@ -285,11 +287,62 @@ describe('analysis lifecycle', () => {
   });
 
   it('returns 503 when AI is not configured', async () => {
-    setAIProvider(null); // test env has no ANTHROPIC_API_KEY
+    setAIProvider(null); // test env has no OPENROUTER_API_KEY
     const ctx = await seed();
     const res = await ctx.post(`${API(ctx.project.id)}/${ctx.opp.id}/analyze`).expect(503);
     expect(res.body.error.code).toBe('AI_NOT_CONFIGURED');
     expect(await prisma.aIAnalysisRun.count()).toBe(0);
+  });
+});
+
+describe('provider switch (AIProvider is the only boundary)', () => {
+  /** OpenRouter over mocked HTTP: analysis call, then recommendation call. */
+  function openRouterOverMockHttp() {
+    const bodies = [validAnalysis(), validRecommendations()];
+    let i = 0;
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          model: 'vendor/model-x',
+          choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(bodies[Math.min(i++, 1)]) } }],
+          usage: { prompt_tokens: 3000, completion_tokens: 600 },
+        }),
+        { status: 200 },
+      );
+    const cfg = { provider: 'openrouter' as const, apiKey: 'sk-or-v1-test-0123456789abcdef', baseUrl: 'https://openrouter.example/api/v1', model: 'vendor/model-x', maxTokens: 16000, timeoutMs: 5000, maxRetries: 0, outputMode: 'json_schema' as const, reasoningEffort: null };
+    return new OpenRouterProvider(cfg, fetchImpl);
+  }
+
+  /** Gemini with a mocked SDK: analysis call, then recommendation call. */
+  function geminiOverMockSdk() {
+    const bodies = [validAnalysis(), validRecommendations()];
+    let i = 0;
+    const models = {
+      generateContent: async () => ({
+        text: JSON.stringify(bodies[Math.min(i++, 1)]),
+        candidates: [{ finishReason: 'STOP' }],
+        usageMetadata: { promptTokenCount: 3000, candidatesTokenCount: 500, thoughtsTokenCount: 100 },
+      }),
+    };
+    const cfg = { provider: 'gemini' as const, apiKey: 'AIzaSyTest0123456789abcdef', baseUrl: '', model: 'gemini-model-x', maxTokens: 16000, timeoutMs: 5000, maxRetries: 0, outputMode: 'json_schema' as const, reasoningEffort: null };
+    return new GeminiProvider(cfg, models);
+  }
+
+  it.each([
+    ['FakeAI', () => new FakeAI(), 'fake', 'fake-model'],
+    ['OpenRouterProvider', openRouterOverMockHttp, 'openrouter', 'vendor/model-x'],
+    ['GeminiProvider', geminiOverMockSdk, 'gemini', 'gemini-model-x'],
+  ])('the unchanged Phase 5 pipeline completes with %s', async (_name, make, providerName, model) => {
+    setAIProvider(make());
+    const ctx = await seed();
+    const run = await analyze(ctx);
+    expect(run).toMatchObject({ provider: providerName, model });
+    await runAIAnalysis(run.id);
+    const done = await prisma.aIAnalysisRun.findUniqueOrThrow({ where: { id: run.id } });
+    expect(done).toMatchObject({ status: 'COMPLETED', provider: providerName, model });
+    const res = (await ctx.get(`${API(ctx.project.id)}/${ctx.opp.id}/analysis`).expect(200)).body;
+    expect(res.analysis).toMatchObject({ provider: providerName, summary: validAnalysis().summary });
+    if (providerName !== 'fake') expect(done).toMatchObject({ inputTokens: 6000, outputTokens: 1200 }); // summed across both calls
   });
 });
 

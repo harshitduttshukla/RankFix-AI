@@ -46,15 +46,21 @@ const EnvSchema = z.object({
   OPPORTUNITY_HIGH_IMPRESSIONS_MAX_CTR: z.coerce.number().gt(0).max(1).default(0.015),
   OPPORTUNITY_MIN_DECLINE_PERCENT: z.coerce.number().gt(0).max(100).default(25),
   OPPORTUNITY_MIN_QUERY_IMPRESSIONS: z.coerce.number().int().min(1).default(100),
-  // AI (Phase 5). Optional so the app boots without AI; analysis is refused until both are set.
-  ANTHROPIC_API_KEY: z.preprocess(emptyToUndefined, z.string().min(20).optional()),
-  AI_MODEL: z.preprocess(emptyToUndefined, z.string().min(3).max(100).optional()),
+  // AI (Phase 5). AI_PROVIDER picks the implementation; each reads its own key. Optional so the app boots
+  // without AI; analysis is refused until the selected provider's key and AI_MODEL are set.
+  AI_PROVIDER: z.preprocess(emptyToUndefined, z.enum(['openrouter', 'gemini']).default('openrouter')),
+  GEMINI_API_KEY: z.preprocess(emptyToUndefined, z.string().min(20).optional()),
+  OPENROUTER_API_KEY: z.preprocess(emptyToUndefined, z.string().min(20).optional()),
+  OPENROUTER_BASE_URL: z.preprocess(emptyToUndefined, z.string().url().default('https://openrouter.ai/api/v1')),
+  AI_MODEL: z.preprocess(emptyToUndefined, z.string().min(3).max(200).optional()),
   AI_MAX_TOKENS: z.coerce.number().int().min(1024).max(64_000).default(16_000),
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(180_000),
-  AI_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
-  AI_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
-  // Server-side refusal fallback (Claude API). Disable for models/platforms that don't support it.
-  AI_REFUSAL_FALLBACK: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // Retries inside one job attempt (transient errors only). BullMQ adds up to 3 attempts on top.
+  AI_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(1),
+  // json_schema: provider-enforced structured output (recommended). prompt: schema in the system message, for
+  // models without structured-output support. Both are Zod-validated and grounding-checked.
+  AI_OUTPUT_MODE: z.enum(['json_schema', 'prompt']).default('json_schema'),
+  AI_REASONING_EFFORT: z.preprocess(emptyToUndefined, z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional()),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(15 * 60),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
 });

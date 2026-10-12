@@ -75,3 +75,59 @@ export class FakeAI implements AIProvider {
     return { output, usage: { inputTokens: 1000, outputTokens: 200 }, model: this.model, promptVersion, latencyMs: 5 };
   }
 }
+
+/** A complete AI context for a page whose top query is "react guide" (unit tests; no database). */
+export function sampleContext(over: Partial<AIContext['page']> = {}): AIContext {
+  return {
+    contextVersion: 'opportunity-context-v1',
+    project: { name: 'P' },
+    website: { baseUrl: 'https://site.example.com', blogPathPrefix: null },
+    opportunity: {
+      id: 'o1',
+      type: 'LOW_CTR',
+      score: 70,
+      status: 'DETECTED',
+      dateRange: { start: '2026-09-01', end: '2026-09-28' },
+      scoreBreakdown: [],
+      metrics: {
+        current: { start: '2026-09-01', end: '2026-09-28', clicks: 300, impressions: 30000, ctr: 0.01, position: 7.2 },
+        previous: { start: '2026-08-04', end: '2026-08-31', clicks: 310, impressions: 29000, ctr: 0.0107, position: 7 },
+        expectedCtr: 0.038,
+        queryCount: 3,
+        clickChangePercent: -3.2,
+        ctrChangePercent: -6.5,
+        positionChange: 0.2,
+      },
+      evidence: [],
+      topQueries: [
+        { query: 'react guide', clicks: 120, impressions: 12000, ctr: 0.01, position: 6.5 },
+        { query: 'React Performance', clicks: 10, impressions: 3000, ctr: 0.003, position: 9 },
+      ],
+    },
+    page: {
+      url: 'https://site.example.com/blog/react-guide',
+      status: 'ACTIVE',
+      lastCrawledAt: '2026-10-01T00:00:00.000Z',
+      content: {
+        versionId: 'v1',
+        versionNo: 1,
+        title: 'React Guide',
+        metaDescription: null,
+        canonicalUrl: null,
+        language: 'en',
+        robotsMeta: null,
+        h1: 'React Guide',
+        headings: [{ level: 2, text: 'React hooks tutorial' }],
+        wordCount: 900,
+        sections: [{ sectionKey: 's1-react-hooks-tutorial', heading: 'React hooks tutorial', level: 2, wordCount: 400, text: 'Hooks...', truncated: false }],
+        internalLinks: [],
+        internalLinkCount: 0,
+        structuredDataTypes: [],
+        imagesMissingAlt: 0,
+        extractionMethod: 'HTTP_CHEERIO',
+        contentTruncated: false,
+      },
+      ...over,
+    },
+  };
+}

@@ -1,6 +1,6 @@
 # Phase 5: AI Analysis & Recommendation
 
-For a Phase 4 opportunity, Claude explains what the stored evidence shows, what the page covers, the search intent behind its queries, observable content gaps, and changes a human might consider. Phase 5 never modifies or publishes content and never changes the opportunity's status. Its output is input for Phase 6 (human approval).
+For a Phase 4 opportunity, the configured model (via OpenRouter) explains what the stored evidence shows, what the page covers, the search intent behind its queries, observable content gaps, and changes a human might consider. Phase 5 never modifies or publishes content and never changes the opportunity's status. Its output is input for Phase 6 (human approval).
 
 ## Flow
 
@@ -19,7 +19,7 @@ GET …/opportunities/:id/analysis (VIEWER) → { latestRun, analysis | null }
 ```
 services/ai/
   ai.provider.ts          AIProvider interface (analyzeOpportunity, generateRecommendation) + aiProvider()/setAIProvider()
-  anthropic.provider.ts   the only file importing @anthropic-ai/sdk: request construction, structured outputs, error mapping, usage
+  openrouter.provider.ts  the only file that talks to the AI API: OpenRouter Chat Completions over fetch, strict JSON-schema output, error mapping, usage, transient retries
   ai.config.ts            env → AIConfig; AINotConfiguredError
   ai.errors.ts            AIError {code, retryable, usage}
   ai.schemas.ts           Zod: OpportunityAnalysis, Observation, Interpretation, SearchIntent, ContentGap, Recommendation, RecommendationSet
@@ -32,7 +32,14 @@ repositories/ai-analysis.repository.ts, queues/ai-analysis.queue.ts, workers/ai-
 
 Application code depends only on `AIProvider`. To add another provider, implement the interface and select it in `aiProvider()`.
 
-**Anthropic request:** `client.beta.messages.parse` with `output_config: { effort, format: betaZodOutputFormat(schema) }`. Adaptive thinking is the model default. With `AI_REFUSAL_FALLBACK=true`, the request also sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`), so a safety-classifier decline is re-run on Anthropic's recommended fallback model. Disable this for models or platforms that don't support it. The SDK handles timeouts (`AI_TIMEOUT_MS`) and transport retries (`AI_MAX_RETRIES`).
+**OpenRouter request** (`POST {OPENROUTER_BASE_URL}/chat/completions`, `Authorization: Bearer OPENROUTER_API_KEY`):
+- **Body:** `model = AI_MODEL`, system + user messages (the same versioned prompts), `max_tokens`.
+- **Structured output:** `response_format: {type: "json_schema", json_schema: {name, strict: true, schema}}`. The schema is generated from the Zod schemas with length and range keywords stripped for strict-mode compatibility; Zod still enforces those on re-validation.
+- **Routing:** `provider.require_parameters: true`, so OpenRouter only routes to endpoints of that model that support structured output. There is no model fallback list, so the configured model is always the one used.
+- **Reasoning:** `reasoning: {effort, exclude: true}` only when `AI_REASONING_EFFORT` is set.
+- **Removed Anthropic features:** adaptive thinking parameters, the `fallbacks` refusal beta and the SDK error classes are gone. Their application-level counterparts (refusal → `AI_REFUSED`, no retry; Zod; grounding) remain.
+
+Choose an `AI_MODEL` whose OpenRouter page lists `structured_outputs`; otherwise requests fail with `AI_MODEL_NOT_FOUND`.
 
 ## Validation: invalid output is never stored as a success
 
@@ -46,15 +53,23 @@ Application code depends only on `AIProvider`. To add another provider, implemen
 
 Any failure marks the run `FAILED` with an `errorCode`, raises `UnrecoverableError`, and is not retried.
 
-## Retries
+## Errors and retries
 
-| Error | Code | Behavior |
+| OpenRouter result | Code | Behavior |
 |---|---|---|
-| 429, 5xx/529, connection/timeout | `PROVIDER_RETRYABLE` | SDK retries first, then BullMQ (3 attempts, exponential backoff from 30 s). The run stays `RUNNING` with the last error recorded. Exhausted retries → `FAILED`. |
-| 400/401/403, other 4xx | `PROVIDER_ERROR` | fail at once |
-| invalid / ungrounded output | `AI_OUTPUT_INVALID` | fail at once (no retry) |
-| refusal / truncation | `AI_REFUSED` / `AI_TRUNCATED` | fail at once |
-| opportunity dismissed or deleted after queuing | `CONTEXT_UNAVAILABLE` | fail at once, before any AI call |
+| 429 | `AI_RATE_LIMITED` | transient |
+| 408/504, client timeout (`AI_TIMEOUT_MS`) | `AI_TIMEOUT` | transient |
+| 500/502/503, network error, `finish_reason: error` | `AI_PROVIDER_UNAVAILABLE` | transient |
+| 401 | `AI_AUTHENTICATION_FAILED` | permanent |
+| 402 | `AI_INSUFFICIENT_CREDITS` | permanent |
+| invalid model / no endpoint meeting `require_parameters` | `AI_MODEL_NOT_FOUND` | permanent |
+| other 4xx | `AI_BAD_REQUEST` | permanent |
+| 403 moderation/guardrail, `message.refusal`, `finish_reason: content_filter` | `AI_REFUSED` | permanent |
+| `finish_reason: length` | `AI_TRUNCATED` | permanent |
+| empty, non-JSON, schema-invalid or ungrounded output | `AI_OUTPUT_INVALID` | permanent |
+| error object inside an HTTP 200 body | mapped by its code | as above |
+
+Transient errors are retried inside the provider up to `AI_MAX_RETRIES` times (default 1, backoff 1 s, 2 s, …, capped at 8 s). After that, BullMQ retries the job (3 attempts, exponential from 30 s), so the worst case is (1 + `AI_MAX_RETRIES`) × 3 calls. Permanent errors fail the run once and are not retried. Error messages are our own wording, so raw provider bodies and keys never reach the database or the UI.
 
 Worker start marks runs stuck `RUNNING` for more than 45 minutes as `FAILED` (`INTERRUPTED`).
 
@@ -87,12 +102,22 @@ Cross-tenant IDs return 404. Requests and completions are audited (`ai.analysis_
 
 ## Configuration
 
-`ANTHROPIC_API_KEY`, `AI_MODEL` (e.g. `claude-opus-5-5`; no default in code), `AI_MAX_TOKENS=16000`, `AI_TIMEOUT_MS=180000`, `AI_MAX_RETRIES=2`, `AI_EFFORT=high`, `AI_REFUSAL_FALLBACK=true`.
+| Variable | Notes |
+|---|---|
+| `OPENROUTER_API_KEY` | Required to analyze |
+| `AI_MODEL` | Required. An OpenRouter model ID such as `vendor/model`, from a model that supports structured output. No default in code. |
+| `OPENROUTER_BASE_URL` | Default `https://openrouter.ai/api/v1` |
+| `AI_MAX_TOKENS` | Default 16000 |
+| `AI_TIMEOUT_MS` | Default 180000 |
+| `AI_MAX_RETRIES` | Default 1 |
+| `AI_REASONING_EFFORT` | Optional: none, minimal, low, medium, high, xhigh, max |
 
-The app starts without the first two: analyze returns 503 and the worker logs a warning. The key is never logged (logger redacts `*.apiKey` and `x-api-key`) and never included in error messages.
+The app starts without the key: analyze returns 503 and the worker logs a warning. The key is sent only in the Authorization header. It is never logged (the logger redacts `*.apiKey`, `*.OPENROUTER_API_KEY` and authorization headers), never put in prompts, never stored, and never included in error messages. `ANTHROPIC_API_KEY`, `AI_EFFORT` and `AI_REFUSAL_FALLBACK` are no longer read.
 
 ## Tests
 
-- `test/ai-unit.test.ts`: config, prompt versions, schemas, guardrails, and AnthropicProvider against a mocked SDK client (request shape, usage, invalid output, refusal, truncation, error classification).
+- `test/ai-unit.test.ts`: config, prompt versions, schemas, guardrails.
+- `test/openrouter.test.ts`: OpenRouterProvider against mocked HTTP covering URL, auth header, model, strict schema, reasoning flag, parsing, Zod failures, malformed and missing output, refusal, truncation, error-in-200, every HTTP error class, retries, timeout, network failure, usage, and key redaction.
+- Provider switch (in `ai-analysis.test.ts`): the unchanged Phase 5 pipeline completes with both FakeAI and OpenRouterProvider.
 - `test/ai-analysis.test.ts`: context building, truncation, missing content, cross-tenant context; lifecycle, duplicates, invalid/ungrounded output, retryable then success, permanent failure, dismissed-after-queue, 409/503; BullMQ worker success and no retry on invalid output; 404 cross-tenant, 401, viewer 403.
 - Tests never call Claude. `test/setup-env.ts` clears the AI env vars and pins the Phase 4 thresholds so a local `.env` can't affect results.

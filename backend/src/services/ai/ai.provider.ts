@@ -1,8 +1,9 @@
-import { aiConfig, AINotConfiguredError } from './ai.config.js';
+import { aiConfig, AINotConfiguredError, type AIConfig } from './ai.config.js';
 import { AIError, type AIUsage } from './ai.errors.js';
 import type { AIContext } from './ai-context.builder.js';
 import type { OpportunityAnalysis, RecommendationSet } from './ai.schemas.js';
-import { AnthropicProvider } from './anthropic.provider.js';
+import { GeminiProvider } from './gemini.provider.js';
+import { OpenRouterProvider } from './openrouter.provider.js';
 
 /*
  * The only AI surface application services see. Implementations own transport, model config and
@@ -26,11 +27,21 @@ export interface AIProvider {
 
 let current: AIProvider | null = null;
 
-/** Lazily builds the configured provider (Anthropic in V1). */
+/** The single place that maps AI_PROVIDER to an implementation. */
+export function createAIProvider(cfg: AIConfig): AIProvider {
+  switch (cfg.provider) {
+    case 'gemini':
+      return new GeminiProvider(cfg);
+    case 'openrouter':
+      return new OpenRouterProvider(cfg);
+  }
+}
+
+/** Lazily builds the configured provider. */
 export function aiProvider(): AIProvider {
   if (current) return current;
   try {
-    current = new AnthropicProvider(aiConfig());
+    current = createAIProvider(aiConfig());
   } catch (err) {
     if (err instanceof AINotConfiguredError) throw new AIError('AI_NOT_CONFIGURED', err.message, false);
     throw err;
