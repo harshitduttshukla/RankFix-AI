@@ -59,3 +59,62 @@
     outline-offset: 2px;
   }
 }
+
+/* ───────── RankFix AI marketing site (landing page only; the app keeps the theme above) ───────── */
+@theme inline {
+  --font-display: var(--font-geist), var(--font-plex-sans), system-ui, sans-serif;
+  --color-lp-bg: #f7f6f2;
+  --color-lp-bg2: #efede6;
+  --color-lp-ink: #14151b;
+  --color-lp-ink2: #4a4d58;
+  --color-lp-ink3: #7d808b;
+  --color-lp-line: #e2dfd6;
+  --color-lp-line2: #ecebe4;
+  --color-brand: #3a4af0;
+  --color-brand-dark: #2834c8;
+  --color-brand-soft: #eceefe;
+  --color-brand-violet: #7a62f6;
+  --color-lp-good: #1d7f55;
+  --color-lp-good-bg: #e5f3ec;
+  --color-lp-warn: #b4501c;
+  --color-lp-warn-bg: #fbeee5;
+  --shadow-card: 0 1px 2px rgb(20 21 27 / 0.04), 0 8px 24px -12px rgb(20 21 27 / 0.12);
+  --shadow-frame: 0 1px 2px rgb(20 21 27 / 0.05), 0 24px 60px -24px rgb(31 38 120 / 0.28);
+}
+
+html:has(.lp-root) {
+  scroll-behavior: smooth;
+  background: var(--color-lp-bg);
+}
+
+.lp-root :focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Scroll reveal: content is visible by default; the transition only runs once JS marks the page ready. */
+.lp-js [data-reveal] {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 600ms ease, transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.lp-js [data-reveal][data-shown] {
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes lp-flow {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+.lp-flow-line {
+  stroke-dasharray: 4 8;
+  animation: lp-flow 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has(.lp-root) { scroll-behavior: auto; }
+  .lp-js [data-reveal] { opacity: 1; transform: none; transition: none; }
+  .lp-flow-line { animation: none; }
+}
