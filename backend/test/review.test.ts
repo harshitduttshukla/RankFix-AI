@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/config/database.js';
 import { env } from '../src/config/env.js';
@@ -484,7 +485,8 @@ describe('AI drafts', () => {
     const ctx = await seed();
     const r = await analyzed(ctx);
     expect(r.recommendations[0]).toMatchObject({ draftable: true, draft: { id: null, revision: 0, value: 'React Guide: React Hooks Tutorial' }, draftIssues: [], draftRegenerationsLeft: 5 });
-    expect(r.recommendations[1]).toMatchObject({ draftable: false, draft: null, drafts: [] });
+    // SECTION_EXPANSION: body rewrites are available, but only on request (never from the analysis).
+    expect(r.recommendations[1]).toMatchObject({ draftable: true, draftTarget: 'SECTION_BODY', draft: null, drafts: [] });
     const analysis = await prisma.opportunityAnalysis.findFirstOrThrow();
     expect(analysis.promptVersion).toBe('opportunity-analysis-v1+recommendation-v2');
     expect(await prisma.auditLog.findFirstOrThrow({ where: { action: 'ai.analysis_completed' } })).toMatchObject({ metadata: expect.objectContaining({ drafts: { kept: 1, discarded: 0 } }) });
@@ -568,7 +570,8 @@ describe('AI drafts', () => {
   it('regeneration is refused for stale analyses, rejected or non-draftable recommendations, and past the limit', async () => {
     const ctx = await seed();
     const r = await analyzed(ctx);
-    await ctx.post(draftUrl(ctx, r.recommendations[1].id)).expect(400); // SECTION_EXPANSION
+    await ctx.patch(recUrl(ctx, r.recommendations[1].id), { type: 'MISSING_TOPIC' }).expect(200);
+    await ctx.post(draftUrl(ctx, r.recommendations[1].id)).expect(400); // MISSING_TOPIC: needs new facts, no drafts
     await ctx.post(`${recUrl(ctx, r.recommendations[1].id)}/reject`, { reason: 'NOT_RELEVANT' }).expect(200);
     await ctx.post(draftUrl(ctx, r.recommendations[1].id)).expect(409);
 
@@ -740,13 +743,13 @@ describe('content originality', () => {
     expect(await prisma.originalityCheck.count()).toBe(3);
 
     await ctx.post(checkUrl(ctx, rec.id), { text: '   ' }).expect(400);
-    await ctx.post(checkUrl(ctx, rec.id), { text: 'More hooks', changeType: 'SECTION_CONTENT', targetSection: 's1-react-hooks-tutorial' }).expect(400);
+    await ctx.post(checkUrl(ctx, rec.id), { text: 'More hooks', changeType: 'SECTION_CONTENT', targetSection: 's9-missing' }).expect(400);
 
     const r = (await review(ctx)).recommendations;
     expect(r[0].originality).toMatchObject({ applies: true, policy: 'require_ack', requireCheck: true });
     expect(r[0].originality.checks).toHaveLength(3);
     expect(r[0].originality.checks[0].id).not.toBe(first.id); // newest first
-    expect(r[1].originality).toMatchObject({ applies: false, checks: [] });
+    expect(r[1].originality).toMatchObject({ applies: true, checks: [] }); // section text is checked too
   });
 
   it('never compares against or reveals another tenant’s pages', async () => {
@@ -762,5 +765,125 @@ describe('content originality', () => {
     const viewer = await clientWithProject('vic');
     await prisma.membership.create({ data: { userId: viewer.user.id, organizationId: alice.project.organizationId, role: 'VIEWER' } });
     await viewer.post(checkUrl(alice, rec.id), { text: COPIED }).expect(403);
+  });
+});
+
+describe('body-section drafts', () => {
+  const ORIGINAL =
+    'Scaffolding can be hired for short or long periods. Availability depends on the system, quantity and location. We supply H-frame and Cuplock systems only, and delivery to Pune may take 2 days. Prices are not fixed and may change with transport and labour scope.';
+  const VALID =
+    'You can hire scaffolding for short or long periods. Availability depends on the system, quantity and location. We supply only H-frame and Cuplock systems, and delivery to Pune may take 2 days. Prices are not fixed and may change with your transport and labour scope.';
+  const VALID2 =
+    'Scaffolding is available to hire for short or long periods. Availability depends on the system, quantity and location. Only H-frame and Cuplock systems are supplied, and delivery to Pune may take 2 days. Prices are not fixed and may change with transport and labour scope.';
+  const draftUrl = (ctx: Ctx, recId: string) => `${recUrl(ctx, recId)}/draft`;
+  const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+
+  /** Seeds the hooks section with a body worth rewriting, analyzes, and returns the SECTION_EXPANSION rec (s1). */
+  async function bodyRec(name = 'alice') {
+    const ctx = await seed(name);
+    await prisma.pageSection.updateMany({ where: { versionId: ctx.v1.id, sectionKey: 's1-react-hooks-tutorial' }, data: { text: ORIGINAL } });
+    const r = await analyzed(ctx);
+    return { ctx, rec: r.recommendations[1] };
+  }
+
+  it('generates a validated, fact-preserving rewrite bound to the exact section and version', async () => {
+    const { ctx, rec } = await bodyRec();
+    expect(rec).toMatchObject({ draftable: true, draftTarget: 'SECTION_BODY', draft: null, bodyComparison: { sectionKey: 's1-react-hooks-tutorial', heading: 'React hooks tutorial', original: ORIGINAL, metrics: null } });
+    fake.sectionBodies = [{ suggestedValue: VALID, note: 'Clarified the wording.' }];
+
+    const r = (await ctx.post(draftUrl(ctx, rec.id)).expect(201)).body.recommendations[1];
+    expect(fake.sectionBodyRequests[0]).toMatchObject({ sectionKey: 's1-react-hooks-tutorial', previous: [] });
+    expect(fake.calls.draft).toBe(1);
+    expect(r.draft).toMatchObject({ revision: 1, value: VALID, promptVersion: 'section-body-v1', validation: { passed: true, metrics: { originalWords: 44, factPreservation: 1 } } });
+    expect(r.bodyComparison.metrics).toMatchObject({ originalWords: 44, draftWords: 45 });
+
+    const row = await prisma.recommendationDraft.findFirstOrThrow();
+    expect(row).toMatchObject({ target: 'SECTION_BODY', sectionKey: 's1-react-hooks-tutorial', sourceTextHash: sha(ORIGINAL), pageVersionId: ctx.v1.id, promptVersion: 'section-body-v1' });
+    expect((await prisma.auditLog.findFirstOrThrow({ where: { action: 'recommendation.draft_generated' } })).metadata).toMatchObject({ target: 'SECTION_BODY', sectionKey: 's1-react-hooks-tutorial' });
+
+    // The original section is untouched; approval creates a proposal bound to that section and version.
+    const p = (await ctx.post(`${recUrl(ctx, rec.id)}/approve`, { proposedValue: VALID }).expect(200)).body.recommendations[1].proposals[0];
+    expect(p).toMatchObject({ changeType: 'SECTION_CONTENT', targetSection: 's1-react-hooks-tutorial', currentValue: ORIGINAL, proposedValue: VALID, source: 'AI_DRAFT', draftId: row.id, pageVersionId: ctx.v1.id, originalityStatus: 'CHECKED' });
+    expect((await prisma.pageSection.findFirstOrThrow({ where: { versionId: ctx.v1.id, sectionKey: 's1-react-hooks-tutorial' } })).text).toBe(ORIGINAL);
+  });
+
+  it('discards drafts that add facts, drop caveats or rewrite too much; failures are audited, never stored', async () => {
+    const { ctx, rec } = await bodyRec();
+    fake.sectionBodies = [
+      { suggestedValue: `${VALID} Rates start at 500 per day in Mumbai.`, note: '' },
+      { suggestedValue: VALID.replace('Prices are not fixed and may change', 'Prices change'), note: '' },
+      { suggestedValue: `${VALID}\n\n${VALID2}`, note: '' },
+      { suggestedValue: `<p>${VALID}</p>`, note: '' },
+    ];
+    const added = (await ctx.post(draftUrl(ctx, rec.id)).expect(502)).body.error;
+    expect(added.details.issues.join()).toMatch(/adds numbers not in the section: 500/);
+    expect(added.details.metrics).toMatchObject({ originalWords: 44 });
+    expect((await ctx.post(draftUrl(ctx, rec.id)).expect(502)).body.error.details.issues.join()).toMatch(/negation caveat/);
+    expect((await ctx.post(draftUrl(ctx, rec.id)).expect(502)).body.error.details.issues.join()).toMatch(/expands the original too much/);
+    expect((await ctx.post(draftUrl(ctx, rec.id)).expect(502)).body.error.details.issues.join()).toMatch(/plain text/);
+    expect(await prisma.recommendationDraft.count()).toBe(0);
+    const evt = await prisma.auditLog.findFirstOrThrow({ where: { action: 'recommendation.draft_failed' }, orderBy: { createdAt: 'asc' } });
+    expect(evt.metadata).toMatchObject({ code: 'DRAFT_INVALID', target: 'SECTION_BODY', sectionKey: 's1-react-hooks-tutorial' });
+    expect(JSON.stringify(evt.metadata)).not.toContain('Rates start at 500'); // the draft text is not logged
+  });
+
+  it('provider failures, malformed output and declined drafts fail safely', async () => {
+    const { ctx, rec } = await bodyRec();
+    fake.sectionBodies = [
+      new AIError('AI_OUTPUT_INVALID', 'Model output failed schema validation', false),
+      new AIError('AI_PROVIDER_UNAVAILABLE', 'down', true),
+      { suggestedValue: null, note: 'The section cannot be expanded without new facts.' },
+    ];
+    expect((await ctx.post(draftUrl(ctx, rec.id)).expect(502)).body.error.message).toMatch(/schema validation/);
+    await ctx.post(draftUrl(ctx, rec.id)).expect(502);
+    expect((await ctx.post(draftUrl(ctx, rec.id)).expect(422)).body.error.message).toMatch(/without new facts/);
+    expect(await prisma.recommendationDraft.count()).toBe(0);
+    expect((await review(ctx)).recommendations[1].draft).toBeNull();
+  });
+
+  it('keeps revision history; human edits and approved proposals are never overwritten by a new draft', async () => {
+    const { ctx, rec } = await bodyRec();
+    fake.sectionBodies = [{ suggestedValue: VALID, note: '' }, { suggestedValue: VALID2, note: '' }];
+    await ctx.post(draftUrl(ctx, rec.id)).expect(201);
+    const edited = `${VALID} Ask us about combining systems.`;
+    const p = (await ctx.post(`${recUrl(ctx, rec.id)}/approve`, { proposedValue: edited }).expect(200)).body.recommendations[1].proposals[0];
+    expect(p).toMatchObject({ source: 'HUMAN_EDITED', proposedValue: edited });
+    await ctx.post(`${propUrl(ctx, p.id)}/approve`).expect(200);
+    const before = await prisma.optimizationProposal.findUniqueOrThrow({ where: { id: p.id } });
+
+    const r = (await ctx.post(draftUrl(ctx, rec.id)).expect(201)).body.recommendations[1];
+    expect(fake.sectionBodyRequests[1]!.previous).toEqual([VALID]);
+    expect(r.drafts.map((d: { revision: number }) => d.revision)).toEqual([1, 2]);
+    expect(r.draft.value).toBe(VALID2);
+    expect(await prisma.optimizationProposal.findUniqueOrThrow({ where: { id: p.id } })).toEqual(before);
+  });
+
+  it('a page change makes body drafts stale: no new drafts, no approvals on the old version', async () => {
+    const { ctx, rec } = await bodyRec();
+    fake.sectionBodies = [{ suggestedValue: VALID, note: '' }];
+    await ctx.post(draftUrl(ctx, rec.id)).expect(201);
+    await createVersion(ctx.scope.organizationId, ctx.page.id, 2, 'React Guide v2');
+    expect((await ctx.post(draftUrl(ctx, rec.id)).expect(409)).body.error.code).toBe('ANALYSIS_STALE');
+    expect((await ctx.post(`${recUrl(ctx, rec.id)}/approve`, { proposedValue: VALID }).expect(409)).body.error.code).toBe('ANALYSIS_STALE');
+  });
+
+  it('a draft whose source section text no longer matches is refused at approval', async () => {
+    const { ctx, rec } = await bodyRec();
+    fake.sectionBodies = [{ suggestedValue: VALID, note: '' }];
+    await ctx.post(draftUrl(ctx, rec.id)).expect(201);
+    await prisma.recommendationDraft.updateMany({ data: { sourceTextHash: sha('something else') } });
+    expect((await ctx.post(`${recUrl(ctx, rec.id)}/approve`, { proposedValue: VALID }).expect(409)).body.error.message).toMatch(/section changed since this draft/);
+    expect(await prisma.optimizationProposal.count()).toBe(0);
+  });
+
+  it('tenant isolation and roles', async () => {
+    const { ctx, rec } = await bodyRec('alice');
+    const bob = await seed('bob');
+    await bob.post(`${API(bob.project.id)}/${bob.opp.id}/recommendations/${rec.id}/draft`).expect(404);
+    await bob.post(draftUrl(ctx, rec.id)).expect(404);
+    const viewer = await clientWithProject('vic');
+    await prisma.membership.create({ data: { userId: viewer.user.id, organizationId: ctx.project.organizationId, role: 'VIEWER' } });
+    await viewer.post(draftUrl(ctx, rec.id)).expect(403);
+    expect(fake.sectionBodyRequests).toHaveLength(0);
   });
 });

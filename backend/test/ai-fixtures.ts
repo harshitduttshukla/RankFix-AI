@@ -72,6 +72,12 @@ export class FakeAI implements AIProvider {
   async generateRecommendation(ctx: AIContext): Promise<AIResult<RecommendationSet>> {
     return this.resolve(this.recs, this.calls.recommend++, ctx, 'recommendation-v2');
   }
+  sectionBodies: Step<DraftOutput>[] = [{ suggestedValue: null, note: 'Not scripted.' }];
+  sectionBodyRequests: { rec: Recommendation; sectionKey: string; previous: string[] }[] = [];
+  async generateSectionBody(ctx: AIContext, rec: Recommendation, sectionKey: string, previous: string[]): Promise<AIResult<DraftOutput>> {
+    this.sectionBodyRequests.push({ rec, sectionKey, previous });
+    return this.resolve(this.sectionBodies, this.calls.draft++, ctx, 'section-body-v1');
+  }
   async generateDraft(ctx: AIContext, rec: Recommendation, previous: string[]): Promise<AIResult<DraftOutput>> {
     this.draftRequests.push({ rec, previous });
     return this.resolve(this.drafts, this.calls.draft++, ctx, 'draft-v1');

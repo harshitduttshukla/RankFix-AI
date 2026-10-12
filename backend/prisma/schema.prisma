@@ -820,6 +820,10 @@ model RecommendationDraft {
   pageVersionId          String // the analyzed version the draft was generated from
   revision               Int // 1, 2, ... (the analysis draft is revision 0)
   value                  String
+  target                 String? // DraftTarget (TITLE … SECTION_BODY); null on drafts made before body rewrites
+  sectionKey             String? // the section a SECTION_HEADING/INTRODUCTION/SECTION_BODY draft rewrites
+  sourceTextHash         String? // sha256 of the exact section text the draft was generated from
+  validation             Json? // checks passed and metrics (e.g. word counts, change ratio) at generation time
   note                   String?
   provider               String
   model                  String

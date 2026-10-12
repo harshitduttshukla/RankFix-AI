@@ -25,6 +25,8 @@ export interface AIProvider {
   generateRecommendation(context: AIContext, analysis: OpportunityAnalysis): Promise<AIResult<RecommendationSet>>;
   /** A fresh draft for one recommendation (reviewer-requested). previousDrafts are values the model must not repeat. */
   generateDraft(context: AIContext, recommendation: Recommendation, previousDrafts: string[]): Promise<AIResult<DraftOutput>>;
+  /** A fact-preserving rewrite of one existing section's body (prompt section-body-v1). */
+  generateSectionBody(context: AIContext, recommendation: Recommendation, sectionKey: string, previousDrafts: string[]): Promise<AIResult<DraftOutput>>;
 }
 
 let current: AIProvider | null = null;

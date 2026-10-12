@@ -115,6 +115,8 @@ describe('originalityTarget', () => {
     expect(originalityTarget('TITLE', null, values)).toEqual({ field: 'TITLE', sectionKey: null });
     expect(originalityTarget('SECTION_HEADING', 's1-a', values)).toEqual({ field: 'SECTION_HEADING', sectionKey: 's1-a' });
     expect(originalityTarget('SECTION_CONTENT', 's0-intro', values)).toEqual({ field: 'SECTION_TEXT', sectionKey: 's0-intro' });
-    expect(originalityTarget('SECTION_CONTENT', 's1-a', values)).toBeNull();
+    expect(originalityTarget('SECTION_CONTENT', 's1-a', values)).toEqual({ field: 'SECTION_TEXT', sectionKey: 's1-a' });
+    expect(originalityTarget('SECTION_CONTENT', 's9-missing', values)).toBeNull();
+    expect(originalityTarget('SECTION_HEADING', null, values)).toBeNull();
   });
 });

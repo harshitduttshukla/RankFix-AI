@@ -355,6 +355,19 @@ export interface Draft {
   value: string;
   note: string | null;
   createdAt: string | null;
+  promptVersion: string | null;
+  validation: { passed: boolean; checkedAt: string; metrics?: BodyMetrics } | null;
+}
+
+/** How a body rewrite compares with the original section (computed on the server). */
+export interface BodyMetrics {
+  originalWords: number;
+  draftWords: number;
+  lengthChange: number;
+  changeRatio: number;
+  termOverlap: number;
+  factPreservation: number;
+  paragraphs: number;
 }
 
 export interface Analysis {
@@ -411,7 +424,9 @@ export interface RecommendationReview {
   suggestedChangeType: ChangeType | null;
   currentValue: string | null;
   draftable: boolean;
+  draftTarget: "TITLE" | "META_DESCRIPTION" | "H1" | "SECTION_HEADING" | "INTRODUCTION" | "SECTION_BODY" | null;
   draft: Draft | null;
+  bodyComparison: { sectionKey: string; heading: string | null; original: string; metrics: BodyMetrics | null } | null;
   drafts: Draft[];
   /** Why the analysis's draft was discarded by validation (empty when it was kept or none was written). */
   draftIssues: string[];

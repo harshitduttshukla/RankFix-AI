@@ -112,7 +112,8 @@ Every lookup is scoped by organization and project, and recommendations and prop
 - The analysis draft lives in the immutable `RecommendationReview.original` and is never overwritten. Regenerated drafts are append-only `RecommendationDraft` rows.
 - Editing a recommendation's type or target drops the draft from the edited copy only. Drafts made before an edit are no longer offered, but they are kept.
 - Proposals stay immutable revisions, so a new draft never touches an existing or approved proposal.
-- The review payload has these fields per recommendation: `draftable`, `draft` (latest offered), `drafts`, `draftIssues` and `draftRegenerationsLeft`.
+- The review payload has these fields per recommendation: `draftable`, `draftTarget`, `draft` (latest offered), `drafts`, `draftIssues`, `draftRegenerationsLeft` and, for body rewrites, `bodyComparison` (section, original text and metrics).
+- Body-section rewrites (`SECTION_BODY`) become `SECTION_CONTENT` proposals for that one section. They are shown side by side with the original, with word counts, change percentages and validation status.
 
 Metadata includes websiteId, opportunityId, recommendationId and proposalId where applicable, from/to status and reason. Org, project and actor are columns on the audit row. No prompts or secrets are recorded.
 

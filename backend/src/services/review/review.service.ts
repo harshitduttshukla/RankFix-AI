@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Prisma, type OpportunityStatus, type ProposalChangeType } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { auditRepository } from '../../repositories/audit.repository.js';
@@ -12,7 +13,8 @@ import { buildAIContext } from '../ai/ai-context.builder.js';
 import { AIError } from '../ai/ai.errors.js';
 import { aiProvider } from '../ai/ai.provider.js';
 import type { Recommendation, StoredRecommendation } from '../ai/ai.schemas.js';
-import { checkDraft, draftLimits, draftTarget, normalizeDraft, type DraftTarget } from '../ai/drafts.js';
+import { checkBodyDraft, checkDraft, draftLimits, draftTarget, normalizeDraft, type DraftTarget } from '../ai/drafts.js';
+import { bodyMetrics } from '../ai/section-body.js';
 import { opportunityAnalysisService } from '../ai/opportunity-analysis.service.js';
 import { originalityService, originalityTarget, type OriginalityDecision } from '../originality/originality.service.js';
 import { opportunityService } from '../optimization/opportunity.service.js';
@@ -89,7 +91,12 @@ export interface OfferedDraft {
   value: string;
   note: string | null;
   createdAt: Date | null;
+  promptVersion: string | null;
+  /** Checks and metrics recorded when the draft was generated (regenerated drafts only). */
+  validation: unknown;
 }
+
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /**
  * Drafts that still match the recommendation as it stands, oldest first. The analysis draft only while the
@@ -100,14 +107,19 @@ function offeredDrafts(r: { original: unknown; edited: unknown; editedAt: Date |
   const rec = effective(r);
   const out: OfferedDraft[] = [];
   if (original.suggestedValue && rec.type === original.type && rec.targetSection === original.targetSection) {
-    out.push({ id: null, revision: 0, value: original.suggestedValue, note: null, createdAt: r.createdAt });
+    out.push({ id: null, revision: 0, value: original.suggestedValue, note: null, createdAt: r.createdAt, promptVersion: null, validation: null });
   }
-  for (const d of r.drafts) if (!r.editedAt || d.createdAt > r.editedAt) out.push({ id: d.id, revision: d.revision, value: d.value, note: d.note, createdAt: d.createdAt });
+  for (const d of r.drafts) {
+    if (r.editedAt && d.createdAt <= r.editedAt) continue;
+    // A draft for one section is never offered for another (sectionKey is null on drafts made before it was recorded).
+    if (d.sectionKey && d.sectionKey !== rec.targetSection) continue;
+    out.push({ id: d.id, revision: d.revision, value: d.value, note: d.note, createdAt: d.createdAt, promptVersion: d.promptVersion, validation: d.validation });
+  }
   return out;
 }
 
 /** The change type a draft target is applied as. */
-const DRAFT_CHANGE: Record<DraftTarget, ProposalChangeType> = { TITLE: 'TITLE', META_DESCRIPTION: 'META_DESCRIPTION', H1: 'H1', SECTION_HEADING: 'SECTION_HEADING', INTRODUCTION: 'SECTION_CONTENT' };
+const DRAFT_CHANGE: Record<DraftTarget, ProposalChangeType> = { TITLE: 'TITLE', META_DESCRIPTION: 'META_DESCRIPTION', H1: 'H1', SECTION_HEADING: 'SECTION_HEADING', INTRODUCTION: 'SECTION_CONTENT', SECTION_BODY: 'SECTION_CONTENT' };
 
 /**
  * Where a proposal's value came from, decided on the server: an unedited offered draft (AI_DRAFT), a value that
@@ -123,7 +135,15 @@ function proposalSource(
   const target = draftTarget(rec, values);
   if (target && DRAFT_CHANGE[target] === change.changeType && (change.targetSection ?? null) === (DRAFT_CHANGE[target].startsWith('SECTION') ? rec.targetSection : null)) {
     const match = [...drafts].reverse().find((d) => normalizeDraft(target, d.value) === change.proposedValue);
-    if (match) return { source: 'AI_DRAFT' as const, draftId: match.id, draftRevision: match.revision };
+    if (match) {
+      // A section draft is bound to the exact text it rewrote; if that text differs now, the draft is stale.
+      const row = match.id ? review.drafts.find((d) => d.id === match.id) : null;
+      const section = values.sections.find((s) => s.sectionKey === rec.targetSection);
+      if (row?.sourceTextHash && section && row.sourceTextHash !== sha256(target === 'SECTION_HEADING' ? (section.heading ?? '') : section.text)) {
+        throw new AppError('ANALYSIS_STALE', 'The section changed since this draft was generated; request a new draft or re-analyze');
+      }
+      return { source: 'AI_DRAFT' as const, draftId: match.id, draftRevision: match.revision };
+    }
   }
   return { source: review.edited || drafts.length ? ('HUMAN_EDITED' as const) : ('AI_RECOMMENDATION' as const), draftId: null, draftRevision: null };
 }
@@ -301,7 +321,15 @@ export const reviewService = {
           suggestedChangeType: changeType,
           currentValue,
           draftable,
+          draftTarget: values ? draftTarget(rec, values) : null,
           draft: drafts.at(-1) ?? null,
+          // Original-versus-proposed comparison for body rewrites (always computed against the analyzed version).
+          bodyComparison: (() => {
+            const latest = drafts.at(-1);
+            const section = values && rec.targetSection ? values.sections.find((s) => s.sectionKey === rec.targetSection) : null;
+            if (!values || draftTarget(rec, values) !== 'SECTION_BODY' || !section) return null;
+            return { sectionKey: section.sectionKey, heading: section.heading, original: section.text, metrics: latest ? bodyMetrics(section.text, latest.value) : null };
+          })(),
           drafts,
           draftIssues: (r.original as StoredRecommendation).draftIssues ?? [],
           draftRegenerationsLeft: Math.max(0, limits.maxRegenerations - r.drafts.length),
@@ -635,13 +663,20 @@ export const reviewService = {
     // The draft must be grounded in exactly the version the analysis (and any proposal) is bound to.
     if (context.page.content?.versionId !== version.id) throw new AppError('ANALYSIS_STALE', 'The page changed since it was analyzed; re-analyze before drafting');
 
-    const failed = async (code: string, message: string, issues: string[] = []) => {
-      await audit(tenant, opp.websiteId, 'recommendation.draft_failed', 'RecommendationReview', review.id, { opportunityId: opp.id, recommendationId: review.id, analysisId: analysis.id, code, issues: issues.slice(0, 5) }, prisma);
+    // Failed drafts are never stored or shown; the reasons (and metrics, never the text) are kept in the audit log.
+    const failed = async (code: string, message: string, issues: string[] = [], metrics: unknown = null) => {
+      await audit(tenant, opp.websiteId, 'recommendation.draft_failed', 'RecommendationReview', review.id, { opportunityId: opp.id, recommendationId: review.id, analysisId: analysis.id, code, target: draftTarget(rec, values), sectionKey: rec.targetSection, issues: issues.slice(0, 8), metrics }, prisma);
       return message;
     };
+    const target = draftTarget(rec, values)!;
+    const sourceSection = rec.targetSection ? values.sections.find((s) => s.sectionKey === rec.targetSection) : undefined;
     let result;
     try {
-      result = await provider.generateDraft(context, rec as Recommendation, offeredDrafts(review).map((d) => d.value));
+      const previous = offeredDrafts(review).map((d) => d.value);
+      result =
+        target === 'SECTION_BODY'
+          ? await provider.generateSectionBody(context, rec as Recommendation, rec.targetSection!, previous)
+          : await provider.generateDraft(context, rec as Recommendation, previous);
     } catch (err) {
       const e = err instanceof AIError ? err : new AIError('PROVIDER_ERROR', 'Unexpected AI provider failure', false);
       const msg = await failed(e.code, e.message);
@@ -652,11 +687,11 @@ export const reviewService = {
       throw new AppError('AI_REFUSED', await failed('NO_DRAFT', `The AI did not write a draft${result.output.note ? `: ${result.output.note}` : ''}`));
     }
     const issues = checkDraft(context, rec, raw, limits);
-    const target = draftTarget(rec, values)!;
     const value = normalizeDraft(target, raw);
+    const metrics = target === 'SECTION_BODY' ? checkBodyDraft(context, rec, value, limits).metrics : null;
     if (offeredDrafts(review).some((d) => normalizeDraft(target, d.value) === value)) issues.push('draft repeats an earlier draft');
     if (issues.length) {
-      throw new AppError('AI_OUTPUT_INVALID', await failed('DRAFT_INVALID', `The new draft failed validation and was discarded: ${issues.slice(0, 3).join('; ')}`, issues), { issues });
+      throw new AppError('AI_OUTPUT_INVALID', await failed('DRAFT_INVALID', `The new draft failed validation and was discarded: ${issues.slice(0, 3).join('; ')}`, issues, metrics), { issues, metrics });
     }
 
     try {
@@ -673,6 +708,10 @@ export const reviewService = {
             pageVersionId: version.id,
             revision,
             value,
+            target,
+            sectionKey: DRAFT_CHANGE[target].startsWith('SECTION') ? rec.targetSection : null,
+            sourceTextHash: sourceSection ? sha256(target === 'SECTION_HEADING' ? (sourceSection.heading ?? '') : sourceSection.text) : null,
+            validation: { passed: true, checkedAt: new Date().toISOString(), ...(metrics ? { metrics } : {}) } as unknown as Prisma.InputJsonValue,
             note: result.output.note.trim().slice(0, 400) || null,
             provider: provider.name,
             model: result.model,
@@ -691,6 +730,9 @@ export const reviewService = {
           draftId: draft.id,
           draftRevision: revision,
           pageVersionId: version.id,
+          target,
+          sectionKey: rec.targetSection,
+          metrics,
           model: result.model,
           promptVersion: result.promptVersion,
         }, tx);
@@ -712,7 +754,7 @@ export const reviewService = {
     if (!changeType) throw new AppError('VALIDATION_ERROR', 'Choose a change type (and target section) to check');
     const targetSection = input.targetSection !== undefined ? input.targetSection : rec.targetSection;
     if (!originalityTarget(changeType, targetSection, values)) {
-      throw new AppError('VALIDATION_ERROR', 'Originality checks apply to the title, meta description, H1, section headings and the intro text');
+      throw new AppError('VALIDATION_ERROR', 'Originality checks apply to the title, meta description, H1, section headings and existing section text');
     }
     if (input.draftId && !review.drafts.some((d) => d.id === input.draftId)) throw notFound('Draft');
     return originalityService.run(tenant, { opp, review, version, values: { sections: values.sections } }, { changeType, targetSection, text: input.text, draftId: input.draftId ?? null });

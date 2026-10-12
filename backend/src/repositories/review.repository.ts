@@ -36,7 +36,7 @@ export const proposalSelect = {
   pageVersion: { select: { versionNo: true } },
 } as const;
 
-export const draftSelect = { id: true, revision: true, value: true, note: true, model: true, requestedById: true, createdAt: true } as const;
+export const draftSelect = { id: true, revision: true, value: true, note: true, model: true, promptVersion: true, target: true, sectionKey: true, sourceTextHash: true, validation: true, requestedById: true, createdAt: true } as const;
 export type DraftRow = Prisma.RecommendationDraftGetPayload<{ select: typeof draftSelect }>;
 
 export type ProposalRow = Prisma.OptimizationProposalGetPayload<{ select: typeof proposalSelect }>;

@@ -81,6 +81,33 @@ A reviewer can request a new draft (Phase 6, `POST …/recommendations/:id/draft
 
 The checks are deterministic and deliberately strict. A false positive only means the reviewer writes the copy themselves.
 
+## Body-section drafts (`section-body-v1`)
+
+These are rewrites of one existing section's body text, for `CLARIFICATION` and `SECTION_EXPANSION` recommendations that target an existing section with text.
+- `MISSING_TOPIC` is excluded, because covering a new topic needs new facts.
+- Body drafts are generated **only when a reviewer requests one**: `POST …/recommendations/:id/draft` calls `AIProvider.generateSectionBody`. The analysis never produces them; `sanitizeDrafts` drops any body draft it returns.
+- Every other draft type behaves exactly as before.
+
+A body draft goes through every existing draft check: schema, unsupported claims, overclaim wording, identical-to-current and plain text. It also goes through `section-body.ts`:
+
+| Check | Rule (default) |
+|---|---|
+| Size | 15 to 800 words (`AI_BODY_MIN_WORDS`, `AI_BODY_MAX_WORDS`), at most 8 paragraphs |
+| Length vs original | at least 0.6× the original, and at most the larger of 1.5× the original or original + 25 words (`AI_BODY_*_LENGTH_RATIO`, `AI_BODY_LENGTH_SLACK_WORDS`) |
+| Unrelated rewrite | word-level edit distance ≤ 0.85 of the longer text, and at least 40% of the original's content words kept |
+| Material facts kept | every number and every name (capitalized, not sentence-initial) in the original must appear (`AI_BODY_MIN_FACT_PRESERVATION` = 1) |
+| Caveats kept | if the original has a negation, condition, limitation or hedge ("not", "depends on", "only", "may" …), the draft must too |
+| Nothing added | numbers must come from the section itself; names from the section or the page |
+| Truncated sections | refused, because the full original could not be compared |
+
+Similarity is never treated as proof of correctness. The checks are explicit and conservative, and a reviewer still reads the original and the draft side by side.
+
+**What is stored on a `RecommendationDraft`:** `target` (`SECTION_BODY`), `sectionKey`, `sourceTextHash` (sha256 of the exact section text in the analyzed version), `validation` (passed, plus metrics), the prompt version and the revision.
+
+**Staleness:** approving a draft whose `sourceTextHash` no longer matches the section returns 409 `ANALYSIS_STALE`. The existing page-version binding still applies.
+
+**Failed drafts** are never stored. `recommendation.draft_failed` records the code, the issues and the metrics, never the text.
+
 ## Errors and retries
 
 | OpenRouter result | Code | Behavior |

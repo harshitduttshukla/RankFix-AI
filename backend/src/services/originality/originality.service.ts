@@ -36,9 +36,8 @@ interface VersionLike {
 export function originalityTarget(changeType: ProposalChangeType, targetSection: string | null, values: VersionLike): { field: SourceField; sectionKey: string | null } | null {
   if (changeType === 'TITLE' || changeType === 'META_DESCRIPTION' || changeType === 'H1') return { field: changeType, sectionKey: null };
   if (changeType === 'SECTION_HEADING') return targetSection ? { field: 'SECTION_HEADING', sectionKey: targetSection } : null;
-  // Section text is only checked for the intro section (the only section text AI drafts may replace).
-  const first = values.sections[0];
-  if (changeType === 'SECTION_CONTENT' && first && !first.heading && first.sectionKey === targetSection) return { field: 'SECTION_TEXT', sectionKey: targetSection };
+  // Section text of any existing section (intro and body rewrites alike).
+  if (changeType === 'SECTION_CONTENT' && targetSection && values.sections.some((s) => s.sectionKey === targetSection)) return { field: 'SECTION_TEXT', sectionKey: targetSection };
   return null;
 }
 
@@ -94,7 +93,7 @@ export const originalityService = {
   /** Runs a new check and stores it (CHECKED or CHECK_FAILED). Never throws for checker failures. */
   async run(tenant: TenantContext, s: CheckSubject, change: CheckChange, cfg = originalityConfig()): Promise<CheckView> {
     const target = originalityTarget(change.changeType, change.targetSection, s.values);
-    if (!target) throw new AppError('VALIDATION_ERROR', 'Originality checks apply to the title, meta description, H1, section headings and the intro text');
+    if (!target) throw new AppError('VALIDATION_ERROR', 'Originality checks apply to the title, meta description, H1, section headings and existing section text');
     const c = checker(cfg);
     if (!c) throw new AppError('VALIDATION_ERROR', 'Originality checking is disabled on this server');
     const normalized = change.changeType === 'SECTION_CONTENT' ? change.text.trim() : change.text.replace(/\s+/g, ' ').trim();

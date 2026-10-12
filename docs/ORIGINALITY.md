@@ -1,6 +1,6 @@
 # Content originality check
 
-Checks proposed text for verbatim or near-verbatim overlap with other pages before it can be approved. It covers titles, meta descriptions, H1s, section headings and intro text, whether the text is an AI draft or a reviewer's edit. It is separate from the factual-grounding and overclaim checks in `services/ai/drafts.ts` and `ai.guardrails.ts`, which still run unchanged.
+Checks proposed text for verbatim or near-verbatim overlap with other pages before it can be approved. It covers titles, meta descriptions, H1s, section headings and existing section text (intro and body), whether the text is an AI draft or a reviewer's edit. It is separate from the factual-grounding and overclaim checks in `services/ai/drafts.ts` and `ai.guardrails.ts`, which still run unchanged.
 
 **What it is not:** a web plagiarism search, a paraphrase detector, an AI-writing detector, or proof that text is original. Every result lists these limitations. The overlap figure is the share of the text's words inside flagged passages. It is not a plagiarism score.
 

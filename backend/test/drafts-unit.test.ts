@@ -35,8 +35,14 @@ describe('draft targets', () => {
 
   it('refuses drafts for content types, unknown sections, and introductions that are not the real intro section', () => {
     const ctx = withIntro();
-    for (const type of ['SECTION_EXPANSION', 'MISSING_TOPIC', 'CLARIFICATION', 'INTERNAL_LINK'] as const) {
+    for (const type of ['MISSING_TOPIC', 'INTERNAL_LINK'] as const) {
       expect(draftTarget({ type, targetSection: 's1-react-hooks-tutorial' }, ctx.page.content)).toBeNull();
+    }
+    // Body rewrites: only for an existing section, never without one.
+    for (const type of ['SECTION_EXPANSION', 'CLARIFICATION'] as const) {
+      expect(draftTarget({ type, targetSection: 's1-react-hooks-tutorial' }, ctx.page.content)).toBe('SECTION_BODY');
+      expect(draftTarget({ type, targetSection: 's9-missing' }, ctx.page.content)).toBeNull();
+      expect(draftTarget({ type, targetSection: null }, ctx.page.content)).toBeNull();
     }
     expect(draftTarget({ type: 'HEADING', targetSection: 's9-missing' }, ctx.page.content)).toBeNull();
     expect(draftTarget({ type: 'HEADING', targetSection: 's0-intro' }, ctx.page.content)).toBeNull(); // has no heading to replace
@@ -73,8 +79,8 @@ describe('checkDraft', () => {
   });
 
   it('rejects drafts for types that may not carry one', () => {
-    expect(checkDraft(sampleContext(), { type: 'SECTION_EXPANSION', targetSection: 's1-react-hooks-tutorial' }, 'More hooks examples here', limits)).toEqual([
-      'a SECTION_EXPANSION recommendation for "s1-react-hooks-tutorial" may not carry a draft',
+    expect(checkDraft(sampleContext(), { type: 'MISSING_TOPIC', targetSection: 's1-react-hooks-tutorial' }, 'More hooks examples here', limits)).toEqual([
+      'a MISSING_TOPIC recommendation for "s1-react-hooks-tutorial" may not carry a draft',
     ]);
   });
 

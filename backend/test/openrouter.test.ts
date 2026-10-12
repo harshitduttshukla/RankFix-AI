@@ -3,7 +3,7 @@ import type { AIConfig } from '../src/services/ai/ai.config.js';
 import { AIError } from '../src/services/ai/ai.errors.js';
 import { httpError, OpenRouterProvider, toStrictJsonSchema, type FetchLike } from '../src/services/ai/openrouter.provider.js';
 import { OpportunityAnalysis } from '../src/services/ai/ai.schemas.js';
-import { DRAFT_SYSTEM, OPPORTUNITY_ANALYSIS_SYSTEM, RECOMMENDATION_SYSTEM } from '../src/services/ai/prompts/index.js';
+import { DRAFT_SYSTEM, OPPORTUNITY_ANALYSIS_SYSTEM, RECOMMENDATION_SYSTEM, SECTION_BODY_SYSTEM } from '../src/services/ai/prompts/index.js';
 import { sampleContext, validAnalysis, validRecommendations } from './ai-fixtures.js';
 
 const KEY = 'sk-or-v1-unit-test-secret-0123456789abcdef';
@@ -138,6 +138,15 @@ describe('OpenRouterProvider responses', () => {
     expect(messages[1]!.content).toContain('Earlier draft');
     expect(messages[1]!.content).toContain(rec.recommendation);
     expect((calls[0]!.body.response_format as { json_schema: { name: string } }).json_schema.name).toBe('recommendation_draft');
+  });
+
+  it('section body rewrites use the section-body-v1 prompt and their own schema name', async () => {
+    const { fetchImpl, calls } = mockFetch(completion({ suggestedValue: 'Hooks let you use state in function components.', note: 'n' }));
+    const rec = { ...validRecommendations().recommendations[1]!, type: 'CLARIFICATION' as const };
+    const r = await provider(fetchImpl).generateSectionBody(sampleContext(), rec, 's1-react-hooks-tutorial', []);
+    expect(r.promptVersion).toBe('section-body-v1');
+    expect((calls[0]!.body.messages as { content: string }[])[0]!.content).toBe(SECTION_BODY_SYSTEM);
+    expect((calls[0]!.body.response_format as { json_schema: { name: string } }).json_schema.name).toBe('section_body_draft');
   });
 
   it('rejects a malformed draft response', async () => {

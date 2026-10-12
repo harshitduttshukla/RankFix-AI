@@ -68,6 +68,16 @@ const EnvSchema = z.object({
   AI_DRAFT_MAX_SECTION_HEADING: z.coerce.number().int().min(10).max(200).default(90),
   AI_DRAFT_MAX_INTRODUCTION: z.coerce.number().int().min(100).max(5_000).default(1_200),
   AI_DRAFT_MAX_REGENERATIONS: z.coerce.number().int().min(0).max(20).default(5),
+  // Body-section rewrites (section-body-v1). See docs/PHASE5_AI.md "Body-section drafts".
+  AI_BODY_MIN_WORDS: z.coerce.number().int().min(1).max(1_000).default(15),
+  AI_BODY_MAX_WORDS: z.coerce.number().int().min(20).max(5_000).default(800),
+  AI_BODY_MAX_PARAGRAPHS: z.coerce.number().int().min(1).max(50).default(8),
+  AI_BODY_MIN_LENGTH_RATIO: z.coerce.number().gt(0).max(1).default(0.6),
+  AI_BODY_MAX_LENGTH_RATIO: z.coerce.number().min(1).max(5).default(1.5),
+  AI_BODY_LENGTH_SLACK_WORDS: z.coerce.number().int().min(0).max(200).default(25),
+  AI_BODY_MAX_CHANGE_RATIO: z.coerce.number().gt(0).max(1).default(0.85),
+  AI_BODY_MIN_TERM_OVERLAP: z.coerce.number().min(0).max(1).default(0.4),
+  AI_BODY_MIN_FACT_PRESERVATION: z.coerce.number().min(0).max(1).default(1),
   // Content originality check (internal corpus only; no external provider). See docs/ORIGINALITY.md.
   ORIGINALITY_CHECKER: z.enum(['internal', 'none']).default('internal'),
   // off: never check · warn: show matches only · require_ack: significant matches need acknowledgment · block: significant matches block approval

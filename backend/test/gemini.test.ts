@@ -6,7 +6,7 @@ import { createAIProvider } from '../src/services/ai/ai.provider.js';
 import { OpportunityAnalysis } from '../src/services/ai/ai.schemas.js';
 import { GeminiProvider, toGeminiError, toGeminiJsonSchema, type GeminiModels, type GeminiResponse } from '../src/services/ai/gemini.provider.js';
 import { OpenRouterProvider } from '../src/services/ai/openrouter.provider.js';
-import { DRAFT_SYSTEM, OPPORTUNITY_ANALYSIS_SYSTEM, RECOMMENDATION_SYSTEM } from '../src/services/ai/prompts/index.js';
+import { DRAFT_SYSTEM, OPPORTUNITY_ANALYSIS_SYSTEM, RECOMMENDATION_SYSTEM, SECTION_BODY_SYSTEM } from '../src/services/ai/prompts/index.js';
 import { sampleContext, validAnalysis, validRecommendations } from './ai-fixtures.js';
 
 const KEY = 'AIzaSyUnitTestGeminiKey-0123456789abcdef';
@@ -95,6 +95,14 @@ describe('GeminiProvider responses', () => {
     expect(r.promptVersion).toBe('draft-v1');
     expect(calls[0]!.config.systemInstruction).toBe(DRAFT_SYSTEM);
     await expect(provider(models).generateDraft(sampleContext(), rec, [])).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
+  });
+
+  it('section body rewrites use the section-body-v1 prompt; malformed output is rejected', async () => {
+    const { models, calls } = mockModels(ok({ suggestedValue: 'Hooks let you use state.', note: 'n' }), ok({ suggestedValue: ['bad'] }));
+    const rec = { ...validRecommendations().recommendations[1]!, type: 'CLARIFICATION' as const };
+    expect((await provider(models).generateSectionBody(sampleContext(), rec, 's1-react-hooks-tutorial', [])).promptVersion).toBe('section-body-v1');
+    expect(calls[0]!.config.systemInstruction).toBe(SECTION_BODY_SYSTEM);
+    await expect(provider(models).generateSectionBody(sampleContext(), rec, 's1-react-hooks-tutorial', [])).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
   });
 
   it('records null usage when usageMetadata is missing (never fabricated)', async () => {

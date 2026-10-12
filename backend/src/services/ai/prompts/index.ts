@@ -4,6 +4,7 @@ import { RECOMMENDATION_PROMPT_VERSION } from './recommendation-v2.js';
 export * from './draft-v1.js';
 export * from './opportunity-analysis-v1.js';
 export * from './recommendation-v2.js';
+export * from './section-body-v1.js';
 
 /** Recorded on every AIAnalysisRun and OpportunityAnalysis. */
 export const ANALYSIS_PROMPT_VERSION = `${OPPORTUNITY_ANALYSIS_PROMPT_VERSION}+${RECOMMENDATION_PROMPT_VERSION}`;

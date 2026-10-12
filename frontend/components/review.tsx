@@ -218,7 +218,7 @@ export function RecommendationCard({
         <p className="text-ink2"><span className="text-ink3">Rationale:</span> {e.rationale}</p>
         <div className="flex flex-wrap gap-1">{e.evidence.map((x, n) => <Chip key={n} tone="rest">{x}</Chip>)}</div>
         {e.targetSection && <p className="text-[12px] text-ink3">Section: <span className="font-mono">{e.targetSection}</span></p>}
-        {rec.suggestedChangeType && rec.currentValue != null && (
+        {rec.suggestedChangeType && rec.currentValue != null && !(rec.draftTarget === "SECTION_BODY" && rec.bodyComparison) && (
           <div>
             <p className="mb-0.5 text-[11.5px] text-ink3">Current {CHANGE_LABEL[rec.suggestedChangeType].toLowerCase()} (analyzed version)</p>
             <p className="max-h-32 overflow-auto whitespace-pre-wrap rounded border border-line2 bg-rail px-2 py-1.5">{rec.currentValue}</p>
@@ -267,8 +267,52 @@ const SOURCE_LABEL: Record<Proposal["source"], string> = {
   AI_RECOMMENDATION: "from AI recommendation",
 };
 
+const pctSigned = (n: number) => `${n > 0 ? "+" : ""}${Math.round(n * 100)}%`;
+const wordCount = (s: string) => (s.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu) ?? []).length;
+
+/** Body-section rewrite: which section changes, original vs proposed, size of the change and validation status. */
+function BodyComparison({ rec }: { rec: RecommendationReview }) {
+  const c = rec.bodyComparison!;
+  const d = rec.draft;
+  const m = c.metrics;
+  return (
+    <div className="space-y-2">
+      <p className="rounded border border-coral-br bg-coral-bg px-2 py-1.5 text-[12px]">
+        Rewrites the body text of the section <span className="font-medium">“{c.heading ?? "Introduction"}”</span> <span className="font-mono text-ink3">({c.sectionKey})</span> only. Its heading and every other section stay as they are.
+      </p>
+      <div className="grid gap-2 md:grid-cols-2">
+        <div>
+          <p className="mb-0.5 text-[11px] text-ink3">Original (analyzed version) · {wordCount(c.original)} words</p>
+          <p className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-rail px-2 py-1.5 text-[12.5px]">{c.original}</p>
+        </div>
+        <div>
+          <p className="mb-0.5 text-[11px] text-ink3">
+            {d ? <>Proposed · AI draft {d.revision} · {m?.draftWords ?? wordCount(d.value)} words</> : "Proposed"}
+          </p>
+          {d ? (
+            <p className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-teal-bg px-2 py-1.5 text-[12.5px]">{d.value}</p>
+          ) : (
+            <p className="rounded border border-dashed border-line px-2 py-3 text-[12.5px] text-ink3">No rewrite yet. Request one below. A rewrite must keep every number, name and caveat, and add nothing new; drafts that don’t are discarded.</p>
+          )}
+        </div>
+      </div>
+      {d && m && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+          <Chip tone={d.validation?.passed ? "teal" : "rest"}>{d.validation?.passed ? "passed fact-preservation checks" : "not validated"}</Chip>
+          <Chip tone="rest">length {pctSigned(m.lengthChange)}</Chip>
+          <Chip tone="rest">{Math.round(m.changeRatio * 100)}% of words changed</Chip>
+          <Chip tone="rest">{Math.round(m.factPreservation * 100)}% of numbers and names kept</Chip>
+          <Chip tone="rest">{Math.round(m.termOverlap * 100)}% of key terms kept</Chip>
+        </div>
+      )}
+      {d && <p className="text-[11.5px] text-ink3">Checks are automatic and conservative. Read the rewrite against the original before approving; you remain responsible for its accuracy.</p>}
+    </div>
+  );
+}
+
 function DraftBlock({ rec, canRegenerate, actions }: { rec: RecommendationReview; canRegenerate: boolean; actions: ReviewActions }) {
   if (!rec.draftable) return null;
+  if (rec.draftTarget === "SECTION_BODY" && rec.bodyComparison) return <BodyDraftBlock rec={rec} canRegenerate={canRegenerate} actions={actions} />;
   const busy = actions.regenerateDraft.isPending && actions.regenerateDraft.variables?.recId === rec.id;
   const error = actions.regenerateDraft.variables?.recId === rec.id ? actions.regenerateDraft.error : null;
   return (
@@ -295,6 +339,30 @@ function DraftBlock({ rec, canRegenerate, actions }: { rec: RecommendationReview
         <div className="mt-1.5 flex items-center gap-2">
           <Button variant="secondary" disabled={busy || rec.draftRegenerationsLeft === 0} onClick={() => actions.regenerateDraft.mutate({ recId: rec.id })}>
             {busy ? "Drafting…" : "Request new draft"}
+          </Button>
+          <span className="text-[11.5px] text-ink3">{rec.draftRegenerationsLeft} left</span>
+        </div>
+      )}
+      <ErrorText error={error} />
+    </div>
+  );
+}
+
+function BodyDraftBlock({ rec, canRegenerate, actions }: { rec: RecommendationReview; canRegenerate: boolean; actions: ReviewActions }) {
+  const busy = actions.regenerateDraft.isPending && actions.regenerateDraft.variables?.recId === rec.id;
+  const error = actions.regenerateDraft.variables?.recId === rec.id ? actions.regenerateDraft.error : null;
+  return (
+    <div className="space-y-2">
+      <p className="text-[11.5px] text-ink3">AI rewrite of the section body: a starting point to review and edit</p>
+      <BodyComparison rec={rec} />
+      {rec.draft?.note && <p className="text-[12px] text-ink3">{rec.draft.note}</p>}
+      {rec.draft && (
+        <OriginalitySection rec={rec} actions={actions} text={rec.draft.value} changeType="SECTION_CONTENT" targetSection={rec.bodyComparison!.sectionKey} draftId={rec.draft.id} canCheck={canRegenerate} />
+      )}
+      {canRegenerate && (
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" disabled={busy || rec.draftRegenerationsLeft === 0} onClick={() => actions.regenerateDraft.mutate({ recId: rec.id })}>
+            {busy ? "Rewriting…" : rec.draft ? "Request new draft" : "Draft a rewrite"}
           </Button>
           <span className="text-[11.5px] text-ink3">{rec.draftRegenerationsLeft} left</span>
         </div>
@@ -372,6 +440,11 @@ function ProposalForm({ rec, review, actions, revise, onDone }: { rec: Recommend
       </label>
       {rec.draft && proposedValue === rec.draft.value && <p className="text-[11.5px] text-ink3">Pre-filled with the AI draft. Edit it as needed; the proposal records whether it was changed.</p>}
       {unchanged && <p className="text-[11.5px] text-coral">This is the current value. Change it before creating a proposal.</p>}
+      {changeType === "SECTION_CONTENT" && rec.currentValue && (
+        <p className="text-[11.5px] text-ink3">
+          {wordCount(proposedValue)} words vs {wordCount(rec.currentValue)} in the original ({pctSigned((wordCount(proposedValue) - wordCount(rec.currentValue)) / Math.max(1, wordCount(rec.currentValue)))})
+        </p>
+      )}
       <OriginalitySection rec={rec} actions={actions} text={proposedValue} changeType={changeType} targetSection={isSection ? targetSection : null} canCheck />
       <OriginalityGate key={m.submittedAt} error={m.error} pending={m.isPending} onAcknowledge={(id) => send(id)} />
       <div className="flex gap-2">
