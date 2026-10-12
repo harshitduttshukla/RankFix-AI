@@ -43,8 +43,8 @@ describe('configuration', () => {
 describe('prompt versioning', () => {
   it('exposes stable version ids recorded on every run', () => {
     expect(OPPORTUNITY_ANALYSIS_PROMPT_VERSION).toBe('opportunity-analysis-v1');
-    expect(RECOMMENDATION_PROMPT_VERSION).toBe('recommendation-v1');
-    expect(ANALYSIS_PROMPT_VERSION).toBe('opportunity-analysis-v1+recommendation-v1');
+    expect(RECOMMENDATION_PROMPT_VERSION).toBe('recommendation-v2');
+    expect(ANALYSIS_PROMPT_VERSION).toBe('opportunity-analysis-v1+recommendation-v2');
   });
 
   it('prompts carry the evidence and safety rules', () => {

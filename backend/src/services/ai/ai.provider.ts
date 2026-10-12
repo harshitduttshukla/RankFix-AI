@@ -1,7 +1,7 @@
 import { aiConfig, AINotConfiguredError, type AIConfig } from './ai.config.js';
 import { AIError, type AIUsage } from './ai.errors.js';
 import type { AIContext } from './ai-context.builder.js';
-import type { OpportunityAnalysis, RecommendationSet } from './ai.schemas.js';
+import type { DraftOutput, OpportunityAnalysis, Recommendation, RecommendationSet } from './ai.schemas.js';
 import { GeminiProvider } from './gemini.provider.js';
 import { OpenRouterProvider } from './openrouter.provider.js';
 
@@ -23,6 +23,8 @@ export interface AIProvider {
   readonly model: string;
   analyzeOpportunity(context: AIContext): Promise<AIResult<OpportunityAnalysis>>;
   generateRecommendation(context: AIContext, analysis: OpportunityAnalysis): Promise<AIResult<RecommendationSet>>;
+  /** A fresh draft for one recommendation (reviewer-requested). previousDrafts are values the model must not repeat. */
+  generateDraft(context: AIContext, recommendation: Recommendation, previousDrafts: string[]): Promise<AIResult<DraftOutput>>;
 }
 
 let current: AIProvider | null = null;

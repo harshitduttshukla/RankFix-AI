@@ -17,6 +17,11 @@ export const proposalSelect = {
   currentValue: true,
   proposedValue: true,
   source: true,
+  draftId: true,
+  originalityCheckId: true,
+  originalityStatus: true,
+  originalityAcknowledgedById: true,
+  originalityAcknowledgedAt: true,
   revision: true,
   supersedesId: true,
   status: true,
@@ -30,6 +35,9 @@ export const proposalSelect = {
   createdAt: true,
   pageVersion: { select: { versionNo: true } },
 } as const;
+
+export const draftSelect = { id: true, revision: true, value: true, note: true, model: true, requestedById: true, createdAt: true } as const;
+export type DraftRow = Prisma.RecommendationDraftGetPayload<{ select: typeof draftSelect }>;
 
 export type ProposalRow = Prisma.OptimizationProposalGetPayload<{ select: typeof proposalSelect }>;
 
@@ -59,12 +67,12 @@ export const reviewRepository = {
     return prisma.recommendationReview.findMany({
       where: { analysisId: analysis.id, organizationId: analysis.organizationId, projectId: analysis.projectId },
       orderBy: { recommendationIndex: 'asc' },
-      include: { proposals: { select: proposalSelect, orderBy: { revision: 'asc' } } },
+      include: { proposals: { select: proposalSelect, orderBy: { revision: 'asc' } }, drafts: { select: draftSelect, orderBy: { revision: 'asc' } } },
     });
   },
 
   findReview(scope: Scope, opportunityId: string, reviewId: string, db: Db = prisma) {
-    return db.recommendationReview.findFirst({ where: { id: reviewId, opportunityId, ...t(scope) } });
+    return db.recommendationReview.findFirst({ where: { id: reviewId, opportunityId, ...t(scope) }, include: { drafts: { select: draftSelect, orderBy: { revision: 'asc' } } } });
   },
 
   findProposal(scope: Scope, opportunityId: string, proposalId: string, db: Db = prisma) {

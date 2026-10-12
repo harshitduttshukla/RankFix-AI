@@ -3,7 +3,7 @@ import type { AIConfig } from '../src/services/ai/ai.config.js';
 import { AIError } from '../src/services/ai/ai.errors.js';
 import { httpError, OpenRouterProvider, toStrictJsonSchema, type FetchLike } from '../src/services/ai/openrouter.provider.js';
 import { OpportunityAnalysis } from '../src/services/ai/ai.schemas.js';
-import { OPPORTUNITY_ANALYSIS_SYSTEM, RECOMMENDATION_SYSTEM } from '../src/services/ai/prompts/index.js';
+import { DRAFT_SYSTEM, OPPORTUNITY_ANALYSIS_SYSTEM, RECOMMENDATION_SYSTEM } from '../src/services/ai/prompts/index.js';
 import { sampleContext, validAnalysis, validRecommendations } from './ai-fixtures.js';
 
 const KEY = 'sk-or-v1-unit-test-secret-0123456789abcdef';
@@ -122,9 +122,27 @@ describe('OpenRouterProvider responses', () => {
     const { fetchImpl, calls } = mockFetch(completion(validRecommendations()));
     const r = await provider(fetchImpl).generateRecommendation(sampleContext(), validAnalysis());
     expect(r.output.recommendations).toHaveLength(2);
-    expect(r.promptVersion).toBe('recommendation-v1');
+    expect(r.promptVersion).toBe('recommendation-v2');
     expect((calls[0]!.body.messages as { content: string }[])[0]!.content).toBe(RECOMMENDATION_SYSTEM);
     expect((calls[0]!.body.response_format as { json_schema: { name: string } }).json_schema.name).toBe('recommendation_set');
+  });
+
+  it('returns a validated draft with the draft prompt; recommendation and previous drafts are in the message', async () => {
+    const { fetchImpl, calls } = mockFetch(completion({ suggestedValue: 'React Guide: React Hooks Tutorial', note: 'n' }));
+    const rec = validRecommendations().recommendations[0]!;
+    const r = await provider(fetchImpl).generateDraft(sampleContext(), rec, ['Earlier draft']);
+    expect(r.output).toEqual({ suggestedValue: 'React Guide: React Hooks Tutorial', note: 'n' });
+    expect(r.promptVersion).toBe('draft-v1');
+    const messages = calls[0]!.body.messages as { content: string }[];
+    expect(messages[0]!.content).toBe(DRAFT_SYSTEM);
+    expect(messages[1]!.content).toContain('Earlier draft');
+    expect(messages[1]!.content).toContain(rec.recommendation);
+    expect((calls[0]!.body.response_format as { json_schema: { name: string } }).json_schema.name).toBe('recommendation_draft');
+  });
+
+  it('rejects a malformed draft response', async () => {
+    const { fetchImpl } = mockFetch(completion({ suggestedValue: 5 }));
+    await expect(provider(fetchImpl).generateDraft(sampleContext(), validRecommendations().recommendations[0]!, [])).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID', retryable: false });
   });
 
   it('parses JSON wrapped in a markdown fence', async () => {

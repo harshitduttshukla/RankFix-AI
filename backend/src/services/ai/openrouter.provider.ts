@@ -3,9 +3,12 @@ import type { AIConfig } from './ai.config.js';
 import { AIError, type AIErrorCode, type AIUsage } from './ai.errors.js';
 import type { AIContext } from './ai-context.builder.js';
 import type { AIProvider, AIResult } from './ai.provider.js';
-import { OpportunityAnalysis, RecommendationSet } from './ai.schemas.js';
+import { DraftOutput, OpportunityAnalysis, type Recommendation, RecommendationSet } from './ai.schemas.js';
 import {
+  buildDraftMessage,
   buildOpportunityAnalysisMessage,
+  DRAFT_PROMPT_VERSION,
+  DRAFT_SYSTEM,
   buildRecommendationMessage,
   OPPORTUNITY_ANALYSIS_PROMPT_VERSION,
   OPPORTUNITY_ANALYSIS_SYSTEM,
@@ -64,6 +67,10 @@ export class OpenRouterProvider implements AIProvider {
 
   generateRecommendation(context: AIContext, analysis: OpportunityAnalysis): Promise<AIResult<RecommendationSet>> {
     return this.call(RecommendationSet, 'recommendation_set', RECOMMENDATION_PROMPT_VERSION, RECOMMENDATION_SYSTEM, buildRecommendationMessage(context, analysis));
+  }
+
+  generateDraft(context: AIContext, recommendation: Recommendation, previousDrafts: string[]): Promise<AIResult<DraftOutput>> {
+    return this.call(DraftOutput, 'recommendation_draft', DRAFT_PROMPT_VERSION, DRAFT_SYSTEM, buildDraftMessage(context, recommendation, previousDrafts));
   }
 
   /** Retries only transient errors, `maxRetries` times, inside one job attempt. */

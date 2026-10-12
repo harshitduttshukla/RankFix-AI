@@ -1,7 +1,7 @@
 import type { AIContext } from '../src/services/ai/ai-context.builder.js';
 import { AIError } from '../src/services/ai/ai.errors.js';
 import type { AIProvider, AIResult } from '../src/services/ai/ai.provider.js';
-import type { OpportunityAnalysis, RecommendationSet } from '../src/services/ai/ai.schemas.js';
+import type { DraftOutput, OpportunityAnalysis, Recommendation, RecommendationSet } from '../src/services/ai/ai.schemas.js';
 
 /** A grounded analysis for a page whose top query is "react guide". */
 export function validAnalysis(over: Partial<OpportunityAnalysis> = {}): OpportunityAnalysis {
@@ -35,6 +35,7 @@ export function validRecommendations(over: Partial<RecommendationSet> = {}): Rec
         evidence: ['ctr 1.0% vs ≈3.8% typical at position 7.2'],
         targetSection: null,
         priority: 'HIGH',
+        suggestedValue: 'React Guide: React Hooks Tutorial',
       },
       {
         type: 'SECTION_EXPANSION',
@@ -43,6 +44,7 @@ export function validRecommendations(over: Partial<RecommendationSet> = {}): Rec
         evidence: ['react hooks tutorial: 8,000 impressions'],
         targetSection: 's1-react-hooks-tutorial',
         priority: 'MEDIUM',
+        suggestedValue: null,
       },
     ],
     caveats: ['Search Console data shows correlation only.'],
@@ -58,15 +60,21 @@ export class FakeAI implements AIProvider {
   readonly model = 'fake-model';
   analyses: Step<OpportunityAnalysis>[] = [() => validAnalysis()];
   recs: Step<RecommendationSet>[] = [() => validRecommendations()];
+  drafts: Step<DraftOutput>[] = [{ suggestedValue: 'React Guide covering the React hooks tutorial', note: 'Names the hooks section.' }];
   contexts: AIContext[] = [];
-  calls = { analyze: 0, recommend: 0 };
+  draftRequests: { rec: Recommendation; previous: string[] }[] = [];
+  calls = { analyze: 0, recommend: 0, draft: 0 };
 
   async analyzeOpportunity(ctx: AIContext): Promise<AIResult<OpportunityAnalysis>> {
     this.contexts.push(ctx);
     return this.resolve(this.analyses, this.calls.analyze++, ctx, 'opportunity-analysis-v1');
   }
   async generateRecommendation(ctx: AIContext): Promise<AIResult<RecommendationSet>> {
-    return this.resolve(this.recs, this.calls.recommend++, ctx, 'recommendation-v1');
+    return this.resolve(this.recs, this.calls.recommend++, ctx, 'recommendation-v2');
+  }
+  async generateDraft(ctx: AIContext, rec: Recommendation, previous: string[]): Promise<AIResult<DraftOutput>> {
+    this.draftRequests.push({ rec, previous });
+    return this.resolve(this.drafts, this.calls.draft++, ctx, 'draft-v1');
   }
   private resolve<T>(steps: Step<T>[], i: number, ctx: AIContext, promptVersion: string): AIResult<T> {
     const step = steps[Math.min(i, steps.length - 1)]!;

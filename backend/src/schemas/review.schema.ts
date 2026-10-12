@@ -22,6 +22,15 @@ export const ProposalBody = z.object({
   proposedValue: z.string().min(1).max(20_000),
   changeType: CHANGE_TYPE.optional(),
   targetSection: z.string().trim().min(1).max(200).nullable().optional(),
+  acknowledgeOriginalityCheckId: Id.optional(),
+});
+
+/** Text to check for originality (a draft or the reviewer's edit). */
+export const OriginalityCheckBody = z.object({
+  text: z.string().max(20_000),
+  changeType: CHANGE_TYPE.optional(),
+  targetSection: z.string().trim().min(1).max(200).nullable().optional(),
+  draftId: Id.nullable().optional(),
 });
 
 export const RejectRecommendationBody = z.object({
@@ -30,6 +39,6 @@ export const RejectRecommendationBody = z.object({
 });
 
 export const ReasonBody = z.object({ reason: z.string().trim().min(1).max(500).optional() });
-export const ApproveProposalBody = z.object({ comment: z.string().trim().max(500).optional() });
+export const ApproveProposalBody = z.object({ comment: z.string().trim().max(500).optional(), acknowledgeOriginalityCheckId: Id.optional() });
 
 export type RejectRecommendationInput = z.infer<typeof RejectRecommendationBody>;

@@ -40,7 +40,7 @@ function strings(value: unknown, out: string[] = []): string[] {
   return out;
 }
 
-function forbiddenLanguage(value: unknown): string[] {
+export function forbiddenLanguage(value: unknown): string[] {
   return strings(value).flatMap((s) => [
     ...FORBIDDEN.filter((re) => re.test(s)).map((re) => `forbidden wording ${re} in "${s.slice(0, 80)}"`),
     ...(unnegatedGuarantee(s) ? [`forbidden wording: un-negated "guarantee" in "${s.slice(0, 80)}"`] : []),

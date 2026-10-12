@@ -308,6 +308,53 @@ export interface Recommendation {
   evidence: string[];
   targetSection: string | null;
   priority: "HIGH" | "MEDIUM" | "LOW";
+  /** AI-drafted replacement copy (validated); absent on analyses before recommendation-v2. */
+  suggestedValue?: string | null;
+}
+
+export type OriginalityAssessment = "NO_MATCHES" | "INFORMATIONAL_MATCHES" | "MINOR_MATCHES" | "SIGNIFICANT_MATCHES";
+
+export interface OriginalityMatch {
+  kind: "EXACT" | "NEAR_VERBATIM" | "DUPLICATE_FIELD";
+  severity: "INFO" | "MINOR" | "SIGNIFICANT";
+  passage: string;
+  start: number;
+  end: number;
+  source: { pageId: string; url: string; field: string; sectionKey: string | null; samePage: boolean; sameWebsite: boolean; excerpt: string };
+  alsoFoundIn: { url: string; field: string }[];
+  words: number;
+  longestRunWords: number;
+  textCoverage: number;
+  attributed: boolean;
+  explanation: string;
+}
+
+export interface OriginalityCheck {
+  id: string;
+  status: "CHECKED" | "CHECK_FAILED";
+  assessment: OriginalityAssessment | null;
+  overlapRatio: number | null;
+  matches: OriginalityMatch[];
+  corpusPages: number | null;
+  checker: string;
+  checkerVersion: string;
+  checkedAt: string;
+  reusableUntil: string;
+  limitations: string[];
+  error: { code: string; message: string | null } | null;
+  text: string;
+  changeType: ChangeType;
+  targetSection: string | null;
+  draftId: string | null;
+}
+
+/** A draft the reviewer may start from. revision 0 (id null) is the analysis's own draft. */
+export interface Draft {
+  id: string | null;
+  revision: number;
+  value: string;
+  note: string | null;
+  createdAt: string | null;
 }
 
 export interface Analysis {
@@ -335,7 +382,11 @@ export interface Proposal {
   targetSection: string | null;
   currentValue: string | null;
   proposedValue: string;
-  source: "AI_RECOMMENDATION" | "HUMAN_EDITED";
+  source: "AI_RECOMMENDATION" | "HUMAN_EDITED" | "AI_DRAFT";
+  draftId: string | null;
+  originalityCheckId: string | null;
+  originalityStatus: "NOT_CHECKED" | "CHECKED" | "CHECK_FAILED" | null;
+  originalityAcknowledgedAt: string | null;
   revision: number;
   status: "AWAITING_APPROVAL" | "APPROVED" | "REJECTED" | "APPLIED" | "SUPERSEDED" | "FAILED";
   pageVersionId: string;
@@ -359,6 +410,13 @@ export interface RecommendationReview {
   rejectionNote: string | null;
   suggestedChangeType: ChangeType | null;
   currentValue: string | null;
+  draftable: boolean;
+  draft: Draft | null;
+  drafts: Draft[];
+  /** Why the analysis's draft was discarded by validation (empty when it was kept or none was written). */
+  draftIssues: string[];
+  draftRegenerationsLeft: number;
+  originality: { applies: boolean; policy: "off" | "warn" | "require_ack" | "block"; requireCheck: boolean; checks: OriginalityCheck[] };
   proposals: Proposal[];
 }
 

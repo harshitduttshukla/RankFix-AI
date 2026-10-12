@@ -6,7 +6,7 @@ import { createAIProvider } from '../src/services/ai/ai.provider.js';
 import { OpportunityAnalysis } from '../src/services/ai/ai.schemas.js';
 import { GeminiProvider, toGeminiError, toGeminiJsonSchema, type GeminiModels, type GeminiResponse } from '../src/services/ai/gemini.provider.js';
 import { OpenRouterProvider } from '../src/services/ai/openrouter.provider.js';
-import { OPPORTUNITY_ANALYSIS_SYSTEM, RECOMMENDATION_SYSTEM } from '../src/services/ai/prompts/index.js';
+import { DRAFT_SYSTEM, OPPORTUNITY_ANALYSIS_SYSTEM, RECOMMENDATION_SYSTEM } from '../src/services/ai/prompts/index.js';
 import { sampleContext, validAnalysis, validRecommendations } from './ai-fixtures.js';
 
 const KEY = 'AIzaSyUnitTestGeminiKey-0123456789abcdef';
@@ -85,6 +85,16 @@ describe('GeminiProvider responses', () => {
     const r = await provider(models).generateRecommendation(sampleContext(), validAnalysis());
     expect(r.output.recommendations).toHaveLength(2);
     expect(calls[0]!.config.systemInstruction).toBe(RECOMMENDATION_SYSTEM);
+  });
+
+  it('returns a validated draft with the draft prompt and rejects malformed ones', async () => {
+    const { models, calls } = mockModels(ok({ suggestedValue: null, note: 'Not enough page facts.' }), ok({ note: 'missing value' }));
+    const rec = validRecommendations().recommendations[0]!;
+    const r = await provider(models).generateDraft(sampleContext(), rec, []);
+    expect(r.output).toEqual({ suggestedValue: null, note: 'Not enough page facts.' });
+    expect(r.promptVersion).toBe('draft-v1');
+    expect(calls[0]!.config.systemInstruction).toBe(DRAFT_SYSTEM);
+    await expect(provider(models).generateDraft(sampleContext(), rec, [])).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
   });
 
   it('records null usage when usageMetadata is missing (never fabricated)', async () => {

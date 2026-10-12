@@ -32,7 +32,10 @@ APPROVED → APPLIED | FAILED (Phase 7)
 1. **Approve a recommendation.** The reviewer sends `proposedValue`, plus optionally `changeType` and `targetSection` (defaults come from the recommendation type). In one transaction the review becomes `APPROVED` and a proposal is created in `AWAITING_APPROVAL`:
    - `pageVersionId` is the analyzed version.
    - `currentValue` is read from that version by the server, never from the client.
-   - `source` is `AI_RECOMMENDATION` or `HUMAN_EDITED`.
+   - `source` is decided by the server, never the client:
+     - `AI_DRAFT`: the value equals an offered, validated AI draft. `draftId` points to the regenerated draft, or is null for the analysis's own draft.
+     - `HUMAN_EDITED`: a draft was offered but the value differs, or the recommendation was edited.
+     - `AI_RECOMMENDATION`: otherwise.
    - The opportunity moves `DETECTED → REVIEWED` and the audit events are written.
 2. **Approve the proposal.** This re-checks that the analysis is current and not stale, and that `page.currentVersionId == proposal.pageVersionId`. It then sets `APPROVED` with `approvedById`, `approvedAt` and `approvedAgainstVersionId`, and writes an `OptimizationApproval` row whose `proposalHash` is sha256 of (changeType, target, current, proposed, pageVersionId). The opportunity moves to `PROPOSED`.
 3. **Different change wanted.** Source values are never edited. `POST …/proposal` creates revision n+1 (with `supersedesId`) and marks the previous live one `SUPERSEDED`.
@@ -77,6 +80,7 @@ Actions on recommendations from an older analysis are refused the same way.
 | POST `/recommendations/:recommendationId/approve` | EDITOR | `{proposedValue, changeType?, targetSection?}` → review APPROVED + proposal |
 | POST `/recommendations/:recommendationId/reject` | EDITOR | `{reason?, note?}` |
 | POST `/recommendations/:recommendationId/proposal` | EDITOR | new proposal revision (201) |
+| POST `/recommendations/:recommendationId/draft` | EDITOR | new AI draft (201), AI rate-limited. Same preconditions as approval (current, non-stale analysis bound to the live version). 400 not draftable, 409 rejected or stale, 429 over `AI_DRAFT_MAX_REGENERATIONS`, 422 no draft written, 502 draft failed validation |
 | POST `/proposals/:proposalId/approve` | EDITOR | `{comment?}` |
 | POST `/proposals/:proposalId/reject` | EDITOR | `{reason?}` |
 | POST `/reject` | EDITOR | opportunity REVIEWED/PROPOSED → REJECTED, live proposals SUPERSEDED |
@@ -97,9 +101,18 @@ Every lookup is scoped by organization and project, and recommendations and prop
 | Group | Events |
 |---|---|
 | Opportunity | `opportunity.reviewed`, `opportunity.rejected` |
-| Recommendation | `recommendation.edited`, `recommendation.approved`, `recommendation.rejected` |
+| Recommendation | `recommendation.edited`, `recommendation.approved`, `recommendation.rejected`, `recommendation.draft_generated`, `recommendation.draft_failed` |
 | Proposal | `proposal.created`, `proposal.superseded`, `proposal.approved`, `proposal.rejected` |
 | Analysis | `analysis.marked_stale`, `analysis.reanalysis_requested` |
+| Originality | `originality.checked`, `originality.check_failed`, `originality.acknowledged` (see [ORIGINALITY.md](ORIGINALITY.md)) |
+
+`proposal.created` also records `source`, `draftId` and `draftRevision` (0 is the analysis draft).
+
+**Drafts in review:**
+- The analysis draft lives in the immutable `RecommendationReview.original` and is never overwritten. Regenerated drafts are append-only `RecommendationDraft` rows.
+- Editing a recommendation's type or target drops the draft from the edited copy only. Drafts made before an edit are no longer offered, but they are kept.
+- Proposals stay immutable revisions, so a new draft never touches an existing or approved proposal.
+- The review payload has these fields per recommendation: `draftable`, `draft` (latest offered), `drafts`, `draftIssues` and `draftRegenerationsLeft`.
 
 Metadata includes websiteId, opportunityId, recommendationId and proposalId where applicable, from/to status and reason. Org, project and actor are columns on the audit row. No prompts or secrets are recorded.
 

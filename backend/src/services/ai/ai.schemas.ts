@@ -75,6 +75,11 @@ export const Recommendation = z.object({
   /** Section key from the context when the recommendation targets a specific section; otherwise null. */
   targetSection: z.string().max(200).nullable(),
   priority: z.enum(['HIGH', 'MEDIUM', 'LOW']),
+  /**
+   * Draft replacement copy for TITLE, META_DESCRIPTION, HEADING and INTRODUCTION recommendations; null otherwise or
+   * when the page facts don't support a draft. Untrusted: drafts.ts validates it before it can reach a reviewer.
+   */
+  suggestedValue: z.string().max(20_000).nullable(),
 });
 
 export const RecommendationSet = z.object({
@@ -83,8 +88,21 @@ export const RecommendationSet = z.object({
   caveats: z.array(text(400)).max(6),
 });
 
+/** Output of a single-draft regeneration request (prompt draft-v1). */
+export const DraftOutput = z.object({
+  /** Null when no draft can be written from the supplied facts; `note` then says why. */
+  suggestedValue: z.string().max(20_000).nullable(),
+  note: z.string().max(400),
+});
+
 export type OpportunityAnalysis = z.infer<typeof OpportunityAnalysis>;
 export type Recommendation = z.infer<typeof Recommendation>;
 export type RecommendationSet = z.infer<typeof RecommendationSet>;
+export type DraftOutput = z.infer<typeof DraftOutput>;
+/**
+ * A recommendation as stored. `suggestedValue` is absent on analyses made before recommendation-v2; `draftIssues`
+ * records why a generated draft was discarded (the draft itself is never stored when it fails validation).
+ */
+export type StoredRecommendation = Omit<Recommendation, 'suggestedValue'> & { suggestedValue?: string | null; draftIssues?: string[] };
 export type SearchIntent = z.infer<typeof SearchIntent>;
 export type ContentGap = z.infer<typeof ContentGap>;

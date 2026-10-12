@@ -20,12 +20,20 @@ export const reviewController = {
     res.json(await reviewService.rejectRecommendation(req.tenant!, p(res).id, p(res).recommendationId!, req.body));
   }) satisfies RequestHandler,
 
+  regenerateDraft: (async (req, res) => {
+    res.status(201).json(await reviewService.regenerateDraft(req.tenant!, p(res).id, p(res).recommendationId!));
+  }) satisfies RequestHandler,
+
+  checkOriginality: (async (req, res) => {
+    res.status(201).json(await reviewService.checkOriginality(req.tenant!, p(res).id, p(res).recommendationId!, req.body));
+  }) satisfies RequestHandler,
+
   createProposal: (async (req, res) => {
     res.status(201).json(await reviewService.createProposal(req.tenant!, p(res).id, p(res).recommendationId!, req.body));
   }) satisfies RequestHandler,
 
   approveProposal: (async (req, res) => {
-    res.json(await reviewService.approveProposal(req.tenant!, p(res).id, p(res).proposalId!, req.body.comment));
+    res.json(await reviewService.approveProposal(req.tenant!, p(res).id, p(res).proposalId!, req.body.comment, req.body.acknowledgeOriginalityCheckId));
   }) satisfies RequestHandler,
 
   rejectProposal: (async (req, res) => {

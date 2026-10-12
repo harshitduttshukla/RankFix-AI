@@ -9,7 +9,7 @@ const handler: Parameters<typeof rateLimit>[0] extends infer O ? O extends { han
 
 export const globalLimiter = rateLimit({
   windowMs: 60_000,
-  limit: 300,
+  limit: process.env.NODE_ENV === 'test' ? 10_000 : 300,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   handler,

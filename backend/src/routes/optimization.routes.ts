@@ -10,6 +10,7 @@ import { ProjectParams } from '../schemas/project.schema.js';
 import {
   ApproveProposalBody,
   EditRecommendationBody,
+  OriginalityCheckBody,
   ProposalBody,
   ProposalParams,
   ReasonBody,
@@ -52,6 +53,8 @@ optimizationRoutes.get(`${opp}/:id/review`, requireProjectAccess('VIEWER'), vali
 optimizationRoutes.patch(rec, requireProjectAccess('EDITOR'), validate({ params: RecommendationParams, body: EditRecommendationBody }), reviewController.edit);
 optimizationRoutes.post(`${rec}/approve`, requireProjectAccess('EDITOR'), validate({ params: RecommendationParams, body: ProposalBody }), reviewController.approve);
 optimizationRoutes.post(`${rec}/reject`, requireProjectAccess('EDITOR'), validate({ params: RecommendationParams, body: RejectRecommendationBody }), reviewController.reject);
+optimizationRoutes.post(`${rec}/draft`, requireProjectAccess('EDITOR'), validate({ params: RecommendationParams }), aiLimiter, reviewController.regenerateDraft);
+optimizationRoutes.post(`${rec}/originality`, requireProjectAccess('EDITOR'), validate({ params: RecommendationParams, body: OriginalityCheckBody }), reviewController.checkOriginality);
 optimizationRoutes.post(`${rec}/proposal`, requireProjectAccess('EDITOR'), validate({ params: RecommendationParams, body: ProposalBody }), reviewController.createProposal);
 optimizationRoutes.post(`${prop}/approve`, requireProjectAccess('EDITOR'), validate({ params: ProposalParams, body: ApproveProposalBody }), reviewController.approveProposal);
 optimizationRoutes.post(`${prop}/reject`, requireProjectAccess('EDITOR'), validate({ params: ProposalParams, body: ReasonBody }), reviewController.rejectProposal);

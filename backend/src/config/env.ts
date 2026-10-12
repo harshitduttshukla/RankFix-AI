@@ -61,6 +61,27 @@ const EnvSchema = z.object({
   // models without structured-output support. Both are Zod-validated and grounding-checked.
   AI_OUTPUT_MODE: z.enum(['json_schema', 'prompt']).default('json_schema'),
   AI_REASONING_EFFORT: z.preprocess(emptyToUndefined, z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional()),
+  // AI-drafted replacement copy: per-target length limits (characters) and regenerations per recommendation.
+  AI_DRAFT_MAX_TITLE: z.coerce.number().int().min(10).max(200).default(70),
+  AI_DRAFT_MAX_META_DESCRIPTION: z.coerce.number().int().min(50).max(400).default(160),
+  AI_DRAFT_MAX_H1: z.coerce.number().int().min(10).max(200).default(90),
+  AI_DRAFT_MAX_SECTION_HEADING: z.coerce.number().int().min(10).max(200).default(90),
+  AI_DRAFT_MAX_INTRODUCTION: z.coerce.number().int().min(100).max(5_000).default(1_200),
+  AI_DRAFT_MAX_REGENERATIONS: z.coerce.number().int().min(0).max(20).default(5),
+  // Content originality check (internal corpus only; no external provider). See docs/ORIGINALITY.md.
+  ORIGINALITY_CHECKER: z.enum(['internal', 'none']).default('internal'),
+  // off: never check · warn: show matches only · require_ack: significant matches need acknowledgment · block: significant matches block approval
+  ORIGINALITY_POLICY: z.enum(['off', 'warn', 'require_ack', 'block']).default('require_ack'),
+  // When true, approval of checkable text fails if the check itself fails (never treated as "no matches").
+  ORIGINALITY_REQUIRE_CHECK: z.preprocess((v) => (v === undefined || v === '' ? undefined : v === 'true' || v === '1'), z.boolean().default(true)),
+  ORIGINALITY_MIN_MATCH_WORDS: z.coerce.number().int().min(3).max(20).default(6),
+  ORIGINALITY_SIGNIFICANT_RUN_WORDS: z.coerce.number().int().min(4).max(100).default(12),
+  ORIGINALITY_SIGNIFICANT_COVERAGE: z.coerce.number().gt(0).max(1).default(0.5),
+  ORIGINALITY_COMMON_PHRASE_MIN_PAGES: z.coerce.number().int().min(2).max(1000).default(3),
+  ORIGINALITY_COMMON_PHRASE_RATIO: z.coerce.number().gt(0).max(1).default(0.3),
+  ORIGINALITY_MAX_CORPUS_PAGES: z.coerce.number().int().min(1).max(50_000).default(2_000),
+  // A stored result is reused for approval only while it is this fresh (the corpus may change after a crawl).
+  ORIGINALITY_RESULT_TTL_MINUTES: z.coerce.number().int().min(1).max(10_080).default(60),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(15 * 60),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
 });

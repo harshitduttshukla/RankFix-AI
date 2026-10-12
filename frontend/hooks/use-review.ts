@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { AIRun, ChangeType, OpportunityDetail, RejectionReason, ReviewPayload } from "@/lib/types";
+import type { AIRun, ChangeType, OpportunityDetail, OriginalityCheck, RejectionReason, ReviewPayload } from "@/lib/types";
 
 const base = (projectId: string, id: string) => `/api/projects/${projectId}/optimization/opportunities/${id}`;
 const key = (projectId: string, id: string) => ["projects", projectId, "opportunities", "review", id] as const;
@@ -21,6 +21,7 @@ export interface ProposalInput {
   proposedValue: string;
   changeType?: ChangeType;
   targetSection?: string | null;
+  acknowledgeOriginalityCheckId?: string;
 }
 
 type RecVars = { recId: string };
@@ -51,12 +52,22 @@ export function useReviewActions(projectId: string, id: string) {
       mutationFn: ({ recId, ...body }: RecVars & { reason?: RejectionReason; note?: string }) => post<ReviewPayload>(`/recommendations/${recId}/reject`, body),
       onSuccess,
     }),
+    checkOriginality: useMutation({
+      mutationFn: ({ recId, ...body }: RecVars & { text: string; changeType?: ChangeType; targetSection?: string | null; draftId?: string | null }) =>
+        post<OriginalityCheck>(`/recommendations/${recId}/originality`, body),
+      onSuccess: () => qc.invalidateQueries({ queryKey: key(projectId, id) }),
+    }),
+    regenerateDraft: useMutation({
+      mutationFn: ({ recId }: RecVars) => post<ReviewPayload>(`/recommendations/${recId}/draft`),
+      onSuccess,
+    }),
     newProposal: useMutation({
       mutationFn: ({ recId, ...body }: RecVars & ProposalInput) => post<ReviewPayload>(`/recommendations/${recId}/proposal`, body),
       onSuccess,
     }),
     approveProposal: useMutation({
-      mutationFn: ({ proposalId, comment }: { proposalId: string; comment?: string }) => post<ReviewPayload>(`/proposals/${proposalId}/approve`, { comment }),
+      mutationFn: ({ proposalId, comment, acknowledgeOriginalityCheckId }: { proposalId: string; comment?: string; acknowledgeOriginalityCheckId?: string }) =>
+        post<ReviewPayload>(`/proposals/${proposalId}/approve`, { comment, acknowledgeOriginalityCheckId }),
       onSuccess,
     }),
     rejectProposal: useMutation({

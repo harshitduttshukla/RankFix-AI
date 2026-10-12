@@ -161,7 +161,7 @@ describe('analysis lifecycle', () => {
   it('queues a run (202), completes it, and serves the validated analysis', async () => {
     const ctx = await seed();
     const run = await analyze(ctx);
-    expect(run).toMatchObject({ status: 'QUEUED', provider: 'fake', model: 'fake-model', promptVersion: 'opportunity-analysis-v1+recommendation-v1', contextVersion: 'opportunity-context-v1' });
+    expect(run).toMatchObject({ status: 'QUEUED', provider: 'fake', model: 'fake-model', promptVersion: 'opportunity-analysis-v1+recommendation-v2', contextVersion: 'opportunity-context-v1' });
     expect(await prisma.aIAnalysisRun.count()).toBe(1);
 
     await runAIAnalysis(run.id);

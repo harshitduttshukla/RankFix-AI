@@ -4,9 +4,12 @@ import type { AIConfig } from './ai.config.js';
 import { AIError, type AIUsage } from './ai.errors.js';
 import type { AIContext } from './ai-context.builder.js';
 import type { AIProvider, AIResult } from './ai.provider.js';
-import { OpportunityAnalysis, RecommendationSet } from './ai.schemas.js';
+import { DraftOutput, OpportunityAnalysis, type Recommendation, RecommendationSet } from './ai.schemas.js';
 import {
+  buildDraftMessage,
   buildOpportunityAnalysisMessage,
+  DRAFT_PROMPT_VERSION,
+  DRAFT_SYSTEM,
   buildRecommendationMessage,
   OPPORTUNITY_ANALYSIS_PROMPT_VERSION,
   OPPORTUNITY_ANALYSIS_SYSTEM,
@@ -94,6 +97,10 @@ export class GeminiProvider implements AIProvider {
 
   generateRecommendation(context: AIContext, analysis: OpportunityAnalysis): Promise<AIResult<RecommendationSet>> {
     return this.call(RecommendationSet, RECOMMENDATION_PROMPT_VERSION, RECOMMENDATION_SYSTEM, buildRecommendationMessage(context, analysis));
+  }
+
+  generateDraft(context: AIContext, recommendation: Recommendation, previousDrafts: string[]): Promise<AIResult<DraftOutput>> {
+    return this.call(DraftOutput, DRAFT_PROMPT_VERSION, DRAFT_SYSTEM, buildDraftMessage(context, recommendation, previousDrafts));
   }
 
   private async call<S extends z.ZodType>(schema: S, promptVersion: string, system: string, user: string): Promise<AIResult<z.infer<S>>> {

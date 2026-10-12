@@ -1,13 +1,15 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../src/config/database.js';
+import { env } from '../src/config/env.js';
 import { closeRedis, redis } from '../src/config/redis.js';
 import { closeAIAnalysisQueue } from '../src/queues/ai-analysis.queue.js';
 import { auditRepository } from '../src/repositories/audit.repository.js';
 import { AIError } from '../src/services/ai/ai.errors.js';
 import { setAIProvider } from '../src/services/ai/ai.provider.js';
 import { runAIAnalysis } from '../src/services/ai/opportunity-analysis.service.js';
+import { setOriginalityChecker } from '../src/services/originality/originality.service.js';
 import { proposalMatchesCurrentPage } from '../src/services/review/review.service.js';
-import { FakeAI } from './ai-fixtures.js';
+import { FakeAI, validRecommendations } from './ai-fixtures.js';
 import { client, clientWithProject, resetDb } from './helpers.js';
 
 let fake: FakeAI;
@@ -168,7 +170,7 @@ describe('recommendation decisions', () => {
       changeType: 'TITLE',
       currentValue: 'React Guide', // read from the analyzed version, client value ignored
       proposedValue: 'React Guide: Hooks, State and Performance',
-      source: 'AI_RECOMMENDATION',
+      source: 'HUMAN_EDITED', // the reviewer replaced the AI draft with their own wording
       pageVersionId: ctx.v1.id,
       pageVersionNo: 1,
       revision: 1,
@@ -472,5 +474,293 @@ describe('access control', () => {
     const anon = await client();
     await anon.get(`${API(ctx.project.id)}/${ctx.opp.id}/review`).expect(401);
     expect(await prisma.optimizationProposal.count()).toBe(0);
+  });
+});
+
+describe('AI drafts', () => {
+  const draftUrl = (ctx: Ctx, recId: string) => `${recUrl(ctx, recId)}/draft`;
+
+  it('shows the validated analysis draft as the starting value; content recommendations get none', async () => {
+    const ctx = await seed();
+    const r = await analyzed(ctx);
+    expect(r.recommendations[0]).toMatchObject({ draftable: true, draft: { id: null, revision: 0, value: 'React Guide: React Hooks Tutorial' }, draftIssues: [], draftRegenerationsLeft: 5 });
+    expect(r.recommendations[1]).toMatchObject({ draftable: false, draft: null, drafts: [] });
+    const analysis = await prisma.opportunityAnalysis.findFirstOrThrow();
+    expect(analysis.promptVersion).toBe('opportunity-analysis-v1+recommendation-v2');
+    expect(await prisma.auditLog.findFirstOrThrow({ where: { action: 'ai.analysis_completed' } })).toMatchObject({ metadata: expect.objectContaining({ drafts: { kept: 1, discarded: 0 } }) });
+  });
+
+  it('drops an unsupported draft but keeps the recommendation; the reviewer writes the copy', async () => {
+    const ctx = await seed();
+    const set = validRecommendations();
+    set.recommendations[0]!.suggestedValue = 'React Guide from ₹499 per day in Mumbai';
+    fake.recs = [set];
+    const r = await analyzed(ctx);
+    expect(r.analysisState).toBe('COMPLETED');
+    expect(r.recommendations[0]).toMatchObject({ draft: null, effective: { type: 'TITLE', suggestedValue: null } });
+    expect(r.recommendations[0].draftIssues.join()).toMatch(/499|₹|Mumbai/);
+    const p = (await ctx.post(`${recUrl(ctx, r.recommendations[0].id)}/approve`, { proposedValue: 'React Guide: Hooks and State' }).expect(200)).body.recommendations[0].proposals[0];
+    expect(p.source).toBe('AI_RECOMMENDATION'); // no draft was offered
+  });
+
+  it('a draft with promissory wording still fails the whole run (overclaim check unchanged)', async () => {
+    const ctx = await seed();
+    const set = validRecommendations();
+    set.recommendations[0]!.suggestedValue = 'React Guide that will increase your clicks';
+    fake.recs = [set];
+    const run = (await ctx.post(`${API(ctx.project.id)}/${ctx.opp.id}/analyze`).expect(202)).body;
+    await expect(runAIAnalysis(run.id)).rejects.toThrow(/grounding/);
+    expect((await review(ctx)).analysisState).toBe('FAILED');
+    expect(await prisma.opportunityAnalysis.count()).toBe(0);
+  });
+
+  it('approving the unedited draft records an AI_DRAFT proposal; the AI original stays immutable', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    const r = (await ctx.post(`${recUrl(ctx, rec.id)}/approve`, { proposedValue: rec.draft.value }).expect(200)).body;
+    expect(r.recommendations[0].proposals[0]).toMatchObject({ source: 'AI_DRAFT', draftId: null, proposedValue: 'React Guide: React Hooks Tutorial', currentValue: 'React Guide', pageVersionId: ctx.v1.id });
+    const evt = await prisma.auditLog.findFirstOrThrow({ where: { action: 'proposal.created' } });
+    expect(evt.metadata).toMatchObject({ source: 'AI_DRAFT', draftId: null, draftRevision: 0 });
+    const stored = await prisma.recommendationReview.findUniqueOrThrow({ where: { id: rec.id } });
+    expect(stored.original).toMatchObject({ suggestedValue: 'React Guide: React Hooks Tutorial' });
+    expect(stored.edited).toBeNull();
+  });
+
+  it('a reviewer can request a new draft: stored as a new revision, earlier drafts and the original kept', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    const r = (await ctx.post(draftUrl(ctx, rec.id)).expect(201)).body.recommendations[0];
+    expect(fake.draftRequests[0]!.previous).toEqual(['React Guide: React Hooks Tutorial']);
+    expect(r.draft).toMatchObject({ revision: 1, value: 'React Guide covering the React hooks tutorial', note: 'Names the hooks section.' });
+    expect(r.drafts.map((d: { revision: number }) => d.revision)).toEqual([0, 1]);
+    expect(r.draftRegenerationsLeft).toBe(4);
+    const row = await prisma.recommendationDraft.findFirstOrThrow();
+    expect(row).toMatchObject({ revision: 1, pageVersionId: ctx.v1.id, promptVersion: 'draft-v1', provider: 'fake', requestedById: ctx.user.id, organizationId: ctx.scope.organizationId });
+    expect(await prisma.auditLog.findFirstOrThrow({ where: { action: 'recommendation.draft_generated' } })).toMatchObject({ actorUserId: ctx.user.id, metadata: expect.objectContaining({ draftId: row.id, draftRevision: 1 }) });
+    expect((await prisma.recommendationReview.findUniqueOrThrow({ where: { id: rec.id } })).original).toMatchObject({ suggestedValue: 'React Guide: React Hooks Tutorial' });
+
+    const p = (await ctx.post(`${recUrl(ctx, rec.id)}/approve`, { proposedValue: r.draft.value }).expect(200)).body.recommendations[0].proposals[0];
+    expect(p).toMatchObject({ source: 'AI_DRAFT', draftId: row.id });
+    const edited = (await ctx.post(`${recUrl(ctx, rec.id)}/proposal`, { proposedValue: 'React Guide: my own hooks title' }).expect(201)).body.recommendations[0].proposals;
+    expect(edited.map((x: { source: string; status: string }) => [x.source, x.status])).toEqual([['AI_DRAFT', 'SUPERSEDED'], ['HUMAN_EDITED', 'AWAITING_APPROVAL']]);
+  });
+
+  it('an invalid, empty or repeated regenerated draft is discarded and audited; nothing is stored', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    fake.drafts = [
+      { suggestedValue: 'React Guide: hooks from $49, rated #1 in London', note: '' },
+      { suggestedValue: null, note: 'The page has too little detail.' },
+      { suggestedValue: 'React Guide: React Hooks Tutorial', note: '' },
+      new AIError('AI_OUTPUT_INVALID', 'Model output was not valid JSON', false),
+    ];
+    const bad = (await ctx.post(draftUrl(ctx, rec.id)).expect(502)).body;
+    expect(bad.error.code).toBe('AI_OUTPUT_INVALID');
+    expect(bad.error.message).toMatch(/discarded/);
+    expect((await ctx.post(draftUrl(ctx, rec.id)).expect(422)).body.error.message).toMatch(/too little detail/);
+    expect((await ctx.post(draftUrl(ctx, rec.id)).expect(502)).body.error.message).toMatch(/repeats an earlier draft/);
+    await ctx.post(draftUrl(ctx, rec.id)).expect(502);
+    expect(await prisma.recommendationDraft.count()).toBe(0);
+    expect(await auditCount('recommendation.draft_failed')).toBe(4);
+    expect((await review(ctx)).recommendations[0].draft).toMatchObject({ revision: 0 });
+  });
+
+  it('regeneration is refused for stale analyses, rejected or non-draftable recommendations, and past the limit', async () => {
+    const ctx = await seed();
+    const r = await analyzed(ctx);
+    await ctx.post(draftUrl(ctx, r.recommendations[1].id)).expect(400); // SECTION_EXPANSION
+    await ctx.post(`${recUrl(ctx, r.recommendations[1].id)}/reject`, { reason: 'NOT_RELEVANT' }).expect(200);
+    await ctx.post(draftUrl(ctx, r.recommendations[1].id)).expect(409);
+
+    const id = r.recommendations[0].id;
+    fake.drafts = [1, 2, 3, 4, 5, 6].map((n) => ({ suggestedValue: `React Guide: React hooks tutorial part ${['one', 'two', 'three', 'four', 'five', 'six'][n - 1]}`, note: '' }));
+    for (let i = 0; i < 5; i++) await ctx.post(draftUrl(ctx, id)).expect(201);
+    await ctx.post(draftUrl(ctx, id)).expect(429);
+    expect(await prisma.recommendationDraft.count()).toBe(5);
+
+    await createVersion(ctx.scope.organizationId, ctx.page.id, 2, 'React Guide v2');
+    expect((await ctx.post(draftUrl(ctx, id)).expect(409)).body.error.code).toBe('ANALYSIS_STALE');
+  });
+
+  it('a new draft never changes an approved proposal', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    const p = (await ctx.post(`${recUrl(ctx, rec.id)}/approve`, { proposedValue: rec.draft.value }).expect(200)).body.recommendations[0].proposals[0];
+    await ctx.post(`${propUrl(ctx, p.id)}/approve`).expect(200);
+    const before = await prisma.optimizationProposal.findUniqueOrThrow({ where: { id: p.id } });
+    await ctx.post(draftUrl(ctx, rec.id)).expect(201);
+    const after = await prisma.optimizationProposal.findUniqueOrThrow({ where: { id: p.id } });
+    expect(after).toEqual(before);
+    expect(after.status).toBe('APPROVED');
+  });
+
+  it('editing the type or target drops the draft from the edited copy, but not from the original', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    await ctx.post(draftUrl(ctx, rec.id)).expect(201);
+    const r = (await ctx.patch(recUrl(ctx, rec.id), { type: 'HEADING' }).expect(200)).body.recommendations[0];
+    expect(r).toMatchObject({ effective: { type: 'HEADING', suggestedValue: null }, original: { suggestedValue: 'React Guide: React Hooks Tutorial' }, draft: null });
+    expect(await prisma.recommendationDraft.count()).toBe(1); // history kept
+    const p = (await ctx.post(`${recUrl(ctx, rec.id)}/approve`, { proposedValue: 'React Guide: React Hooks Tutorial' }).expect(200)).body.recommendations[0].proposals[0];
+    expect(p).toMatchObject({ changeType: 'H1', source: 'HUMAN_EDITED' });
+  });
+
+  it('viewers cannot request drafts; other tenants get 404', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    const viewer = await clientWithProject('vic');
+    await prisma.membership.create({ data: { userId: viewer.user.id, organizationId: ctx.project.organizationId, role: 'VIEWER' } });
+    await viewer.post(draftUrl(ctx, rec.id)).expect(403);
+    const bob = await seed('bob');
+    await bob.post(`${API(bob.project.id)}/${bob.opp.id}/recommendations/${rec.id}/draft`).expect(404);
+    await bob.post(`${API(ctx.project.id)}/${ctx.opp.id}/recommendations/${rec.id}/draft`).expect(404);
+    expect(await prisma.recommendationDraft.count()).toBe(0);
+    expect(fake.calls.draft).toBe(0);
+  });
+});
+
+describe('content originality', () => {
+  const COPIED = 'We supply H-frame and Cuplock scaffolding to construction sites across the western suburbs with erection and dismantling crews available on request.';
+  const ORIGINAL_META = 'A practical React guide that walks through the React hooks tutorial and state management with Context and reducers for new developers.';
+  const checkUrl = (ctx: Ctx, recId: string) => `${recUrl(ctx, recId)}/originality`;
+  const saved = { policy: env.ORIGINALITY_POLICY, requireCheck: env.ORIGINALITY_REQUIRE_CHECK, ttl: env.ORIGINALITY_RESULT_TTL_MINUTES };
+  afterEach(() => {
+    env.ORIGINALITY_POLICY = saved.policy;
+    env.ORIGINALITY_REQUIRE_CHECK = saved.requireCheck;
+    env.ORIGINALITY_RESULT_TTL_MINUTES = saved.ttl;
+    setOriginalityChecker(undefined);
+  });
+
+  /** Another crawled page of the same website whose section text is `text`. */
+  async function otherPage(ctx: Ctx, slug: string, text: string) {
+    const page = await prisma.contentPage.create({ data: { ...ctx.scope, websiteId: ctx.site.id, url: `https://${ctx.site.id}.example.com/${slug}`, httpStatus: 200, lastCrawledAt: new Date() } });
+    const v = await prisma.contentPageVersion.create({
+      data: {
+        organizationId: ctx.scope.organizationId, pageId: page.id, versionNo: 1, source: 'CRAWL', title: `Other ${slug}`, seoMeta: {}, headings: [], sections: [], bodyHtml: '', bodyText: text, wordCount: 30, contentHash: `h-${page.id}`,
+        pageSections: { create: [{ organizationId: ctx.scope.organizationId, sectionKey: 's0-intro', order: 0, heading: null, level: 0, html: '', text, wordCount: 30, blocks: [] }] },
+      },
+    });
+    await prisma.contentPage.update({ where: { id: page.id }, data: { currentVersionId: v.id, currentVersionNo: 1 } });
+    return page;
+  }
+  const approveMeta = (ctx: Ctx, recId: string, proposedValue: string, ack?: string) =>
+    ctx.post(`${recUrl(ctx, recId)}/approve`, { proposedValue, changeType: 'META_DESCRIPTION', ...(ack ? { acknowledgeOriginalityCheckId: ack } : {}) });
+
+  it('checks the final text at approval and records the result on the proposal (no matches)', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    await otherPage(ctx, 'other', COPIED);
+    const p = (await approveMeta(ctx, rec.id, ORIGINAL_META).expect(200)).body.recommendations[0].proposals[0];
+    expect(p).toMatchObject({ originalityStatus: 'CHECKED', originalityAcknowledgedAt: null });
+    const check = await prisma.originalityCheck.findUniqueOrThrow({ where: { id: p.originalityCheckId } });
+    expect(check).toMatchObject({ status: 'CHECKED', assessment: 'NO_MATCHES', text: ORIGINAL_META, changeType: 'META_DESCRIPTION', pageVersionId: ctx.v1.id, checker: 'internal-corpus', checkerVersion: 'internal-ngram-v1', checkedById: ctx.user.id });
+    const evt = await prisma.auditLog.findFirstOrThrow({ where: { action: 'originality.checked' } });
+    expect(evt.metadata).toMatchObject({ checkId: check.id, textLength: ORIGINAL_META.length, assessment: 'NO_MATCHES' });
+    expect(JSON.stringify(evt.metadata)).not.toContain('practical React guide'); // the text is never logged
+  });
+
+  it('significant matches need acknowledgment of the check of that exact text; edited text needs a new one', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    const other = await otherPage(ctx, 'other', COPIED);
+
+    const blocked = (await approveMeta(ctx, rec.id, COPIED).expect(409)).body.error;
+    expect(blocked.code).toBe('ORIGINALITY_ACK_REQUIRED');
+    const check = blocked.details.originality;
+    expect(check).toMatchObject({ status: 'CHECKED', assessment: 'SIGNIFICANT_MATCHES' });
+    expect(check.matches[0]).toMatchObject({ severity: 'SIGNIFICANT', source: { pageId: other.id, url: other.url } });
+    expect(check.limitations.join(' ')).toMatch(/not .*plagiarism-free/);
+    expect(await prisma.optimizationProposal.count()).toBe(0);
+
+    // Acknowledging a check of different (stale) text does not count; the edited text gets its own check.
+    const edited = `${COPIED} Call today.`;
+    const again = (await approveMeta(ctx, rec.id, edited, check.id).expect(409)).body.error.details.originality;
+    expect(again.id).not.toBe(check.id);
+
+    const r = (await approveMeta(ctx, rec.id, edited, again.id).expect(200)).body.recommendations[0];
+    expect(r.proposals[0]).toMatchObject({ originalityCheckId: again.id, originalityStatus: 'CHECKED', originalityAcknowledgedById: ctx.user.id, source: 'HUMAN_EDITED' });
+    expect(await auditCount('originality.acknowledged')).toBe(1);
+
+    // Final approval reuses the fresh result and the acknowledgment made for it.
+    await ctx.post(`${propUrl(ctx, r.proposals[0].id)}/approve`).expect(200);
+    expect(await prisma.originalityCheck.count()).toBe(2);
+    expect((await prisma.auditLog.findFirstOrThrow({ where: { action: 'proposal.approved' } })).metadata).toMatchObject({ originality: { checkId: again.id, acknowledged: true } });
+  });
+
+  it('a stale (expired) result is re-checked at final approval and new matches need acknowledgment', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    const p = (await approveMeta(ctx, rec.id, COPIED).expect(200)).body.recommendations[0].proposals[0]; // nothing to match yet
+    await otherPage(ctx, 'later', COPIED); // crawled afterwards
+    env.ORIGINALITY_RESULT_TTL_MINUTES = 0;
+    const err = (await ctx.post(`${propUrl(ctx, p.id)}/approve`).expect(409)).body.error;
+    expect(err.code).toBe('ORIGINALITY_ACK_REQUIRED');
+    env.ORIGINALITY_RESULT_TTL_MINUTES = saved.ttl;
+    await ctx.post(`${propUrl(ctx, p.id)}/approve`, { acknowledgeOriginalityCheckId: err.details.originality.id }).expect(200);
+    expect((await prisma.optimizationProposal.findUniqueOrThrow({ where: { id: p.id } })).proposedValue).toBe(COPIED); // proposal itself unchanged
+  });
+
+  it('block and warn policies', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    await otherPage(ctx, 'other', COPIED);
+    env.ORIGINALITY_POLICY = 'block';
+    expect((await approveMeta(ctx, rec.id, COPIED).expect(409)).body.error.code).toBe('ORIGINALITY_BLOCKED');
+    env.ORIGINALITY_POLICY = 'warn';
+    const p = (await approveMeta(ctx, rec.id, COPIED).expect(200)).body.recommendations[0].proposals[0];
+    expect(p).toMatchObject({ originalityStatus: 'CHECKED', originalityAcknowledgedAt: null });
+    expect((await prisma.originalityCheck.findUniqueOrThrow({ where: { id: p.originalityCheckId } })).assessment).toBe('SIGNIFICANT_MATCHES');
+  });
+
+  it('a failed check is stored as CHECK_FAILED and blocks approval when required; never shown as "no matches"', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    setOriginalityChecker({ name: 'broken', version: 'x', check: async () => { throw new Error(`boom ${ORIGINAL_META}`); } });
+    const err = (await approveMeta(ctx, rec.id, ORIGINAL_META).expect(503)).body.error;
+    expect(err.code).toBe('ORIGINALITY_CHECK_FAILED');
+    expect(err.details.originality).toMatchObject({ status: 'CHECK_FAILED', assessment: null, matches: [], error: { code: 'CHECKER_ERROR' } });
+    expect(JSON.stringify(err)).not.toContain('boom');
+    expect(await prisma.optimizationProposal.count()).toBe(0);
+    expect(await auditCount('originality.check_failed')).toBe(1);
+
+    env.ORIGINALITY_REQUIRE_CHECK = false;
+    const p = (await approveMeta(ctx, rec.id, ORIGINAL_META).expect(200)).body.recommendations[0].proposals[0];
+    expect(p.originalityStatus).toBe('CHECK_FAILED');
+  });
+
+  it('reviewers can check a draft or their edit and run it again; results are kept and listed', async () => {
+    const ctx = await seed();
+    const rec = (await analyzed(ctx)).recommendations[0];
+    await otherPage(ctx, 'other', COPIED);
+    const first = (await ctx.post(checkUrl(ctx, rec.id), { text: rec.draft.value }).expect(201)).body;
+    expect(first).toMatchObject({ status: 'CHECKED', changeType: 'TITLE', text: 'React Guide: React Hooks Tutorial', assessment: 'NO_MATCHES' });
+    const second = (await ctx.post(checkUrl(ctx, rec.id), { text: COPIED, changeType: 'META_DESCRIPTION' }).expect(201)).body;
+    expect(second.assessment).toBe('SIGNIFICANT_MATCHES');
+    await ctx.post(checkUrl(ctx, rec.id), { text: COPIED, changeType: 'META_DESCRIPTION' }).expect(201); // run again → new row
+    expect(await prisma.originalityCheck.count()).toBe(3);
+
+    await ctx.post(checkUrl(ctx, rec.id), { text: '   ' }).expect(400);
+    await ctx.post(checkUrl(ctx, rec.id), { text: 'More hooks', changeType: 'SECTION_CONTENT', targetSection: 's1-react-hooks-tutorial' }).expect(400);
+
+    const r = (await review(ctx)).recommendations;
+    expect(r[0].originality).toMatchObject({ applies: true, policy: 'require_ack', requireCheck: true });
+    expect(r[0].originality.checks).toHaveLength(3);
+    expect(r[0].originality.checks[0].id).not.toBe(first.id); // newest first
+    expect(r[1].originality).toMatchObject({ applies: false, checks: [] });
+  });
+
+  it('never compares against or reveals another tenant’s pages', async () => {
+    const alice = await seed('alice');
+    const rec = (await analyzed(alice)).recommendations[0];
+    const bob = await seed('bob');
+    await otherPage(bob, 'bob-copy', COPIED);
+    const check = (await alice.post(checkUrl(alice, rec.id), { text: COPIED, changeType: 'META_DESCRIPTION' }).expect(201)).body;
+    expect(check.assessment).toBe('NO_MATCHES');
+    expect(JSON.stringify(check)).not.toContain('bob');
+    await bob.post(checkUrl(alice, rec.id), { text: COPIED }).expect(404);
+    await bob.post(`${API(bob.project.id)}/${bob.opp.id}/recommendations/${rec.id}/originality`, { text: COPIED }).expect(404);
+    const viewer = await clientWithProject('vic');
+    await prisma.membership.create({ data: { userId: viewer.user.id, organizationId: alice.project.organizationId, role: 'VIEWER' } });
+    await viewer.post(checkUrl(alice, rec.id), { text: COPIED }).expect(403);
   });
 });

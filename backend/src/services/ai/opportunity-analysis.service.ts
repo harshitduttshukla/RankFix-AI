@@ -11,6 +11,7 @@ import { AIError } from './ai.errors.js';
 import { checkAnalysis, checkRecommendations } from './ai.guardrails.js';
 import { aiProvider } from './ai.provider.js';
 import { buildAIContext, CONTEXT_VERSION } from './ai-context.builder.js';
+import { sanitizeDrafts } from './drafts.js';
 import { ANALYSIS_PROMPT_VERSION } from './prompts/index.js';
 
 /** Open opportunities, including ones with proposals (re-analysis after a page change). */
@@ -125,6 +126,9 @@ export async function runAIAnalysis(runId: string, attempt = 1) {
     tokens = add(tokens, recs.usage);
     const recIssues = checkRecommendations(context, recs.output);
     if (recIssues.length) throw new AIError('AI_OUTPUT_INVALID', `Recommendations failed grounding checks: ${recIssues.slice(0, 3).join('; ')}`, false);
+    // Drafts that fail validation are dropped (with the reasons kept); the recommendations themselves stand.
+    const recommendations = sanitizeDrafts(context, recs.output);
+    const drafts = { kept: recommendations.recommendations.filter((r) => r.suggestedValue).length, discarded: recommendations.recommendations.filter((r) => r.draftIssues).length };
 
     const saved = await aiAnalysisRepository.complete(run, {
       provider: provider.name,
@@ -133,7 +137,7 @@ export async function runAIAnalysis(runId: string, attempt = 1) {
       contextVersion: context.contextVersion,
       pageVersionId: context.page.content?.versionId ?? null,
       analysis: analysis.output,
-      recommendations: recs.output,
+      recommendations,
       evidenceSnapshot: {
         dateRangeEnd: context.opportunity.dateRange.end,
         score: context.opportunity.score,
@@ -152,7 +156,7 @@ export async function runAIAnalysis(runId: string, attempt = 1) {
       action: 'ai.analysis_completed',
       entityType: 'OptimizationOpportunity',
       entityId: run.opportunityId,
-      metadata: { runId, analysisId: saved.id, model: analysis.model, inputTokens: tokens.input, outputTokens: tokens.output },
+      metadata: { runId, analysisId: saved.id, model: analysis.model, inputTokens: tokens.input, outputTokens: tokens.output, drafts },
     });
     return { analysisId: saved.id };
   } catch (err) {

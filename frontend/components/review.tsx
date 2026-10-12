@@ -4,6 +4,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import type { ReviewActions } from "@/hooks/use-review";
 import { fmtDateTime } from "@/lib/format";
 import type { Analysis, AnalysisState, ChangeType, Proposal, RecommendationReview, RejectionReason, ReviewPayload } from "@/lib/types";
+import { OriginalityGate, OriginalitySection } from "./originality";
 import { Banner, Button, Card, Chip, ErrorText, selectClass, type Tone } from "./ui";
 
 export const AI_DISCLAIMER =
@@ -223,6 +224,7 @@ export function RecommendationCard({
             <p className="max-h-32 overflow-auto whitespace-pre-wrap rounded border border-line2 bg-rail px-2 py-1.5">{rec.currentValue}</p>
           </div>
         )}
+        <DraftBlock rec={rec} canRegenerate={reviewable && analysisCurrent && rec.status !== "REJECTED"} actions={actions} />
         {rec.status === "REJECTED" && (
           <p className="text-[12.5px] text-ink2">
             Rejected: {rec.rejectionReason ? REJECT_LABEL[rec.rejectionReason] : "—"}
@@ -259,6 +261,49 @@ export function RecommendationCard({
   );
 }
 
+const SOURCE_LABEL: Record<Proposal["source"], string> = {
+  AI_DRAFT: "unedited AI draft",
+  HUMAN_EDITED: "human-edited",
+  AI_RECOMMENDATION: "from AI recommendation",
+};
+
+function DraftBlock({ rec, canRegenerate, actions }: { rec: RecommendationReview; canRegenerate: boolean; actions: ReviewActions }) {
+  if (!rec.draftable) return null;
+  const busy = actions.regenerateDraft.isPending && actions.regenerateDraft.variables?.recId === rec.id;
+  const error = actions.regenerateDraft.variables?.recId === rec.id ? actions.regenerateDraft.error : null;
+  return (
+    <div>
+      <p className="mb-0.5 text-[11.5px] text-ink3">
+        AI draft{rec.draft ? (rec.draft.revision ? ` (new draft ${rec.draft.revision})` : " (from the analysis)") : ""} — a starting point to review and edit
+      </p>
+      {rec.draft ? (
+        <p className="whitespace-pre-wrap rounded border border-line2 bg-teal-bg px-2 py-1.5">{rec.draft.value}</p>
+      ) : (
+        <p className="text-[12.5px] text-ink3">
+          {rec.draftIssues.length
+            ? `The AI's draft was discarded because it failed validation (${rec.draftIssues[0]}). Write the copy yourself or request a new draft.`
+            : "No AI draft is available. Write the copy yourself or request a new draft."}
+        </p>
+      )}
+      {rec.draft?.note && <p className="mt-0.5 text-[12px] text-ink3">{rec.draft.note}</p>}
+      {rec.draft && (
+        <div className="mt-2">
+          <OriginalitySection rec={rec} actions={actions} text={rec.draft.value} changeType={rec.suggestedChangeType} targetSection={rec.effective.targetSection} draftId={rec.draft.id} canCheck={canRegenerate} />
+        </div>
+      )}
+      {canRegenerate && (
+        <div className="mt-1.5 flex items-center gap-2">
+          <Button variant="secondary" disabled={busy || rec.draftRegenerationsLeft === 0} onClick={() => actions.regenerateDraft.mutate({ recId: rec.id })}>
+            {busy ? "Drafting…" : "Request new draft"}
+          </Button>
+          <span className="text-[11.5px] text-ink3">{rec.draftRegenerationsLeft} left</span>
+        </div>
+      )}
+      <ErrorText error={error} />
+    </div>
+  );
+}
+
 function EditForm({ rec, actions, onDone }: { rec: RecommendationReview; actions: ReviewActions; onDone: () => void }) {
   const [recommendation, setRecommendation] = useState(rec.effective.recommendation);
   const [rationale, setRationale] = useState(rec.effective.rationale);
@@ -288,12 +333,18 @@ function ProposalForm({ rec, review, actions, revise, onDone }: { rec: Recommend
   const sections = review.page.currentVersion?.pageSections ?? [];
   const [changeType, setChangeType] = useState<ChangeType>(rec.suggestedChangeType ?? "SECTION_CONTENT");
   const [targetSection, setTargetSection] = useState<string>(rec.effective.targetSection ?? sections[0]?.sectionKey ?? "");
-  const [proposedValue, setProposedValue] = useState(rec.currentValue ?? "");
+  // Until the reviewer types, the value follows the latest AI draft (so a newly requested draft shows up here).
+  const [typed, setTyped] = useState<string | null>(null);
+  const proposedValue = typed ?? rec.draft?.value ?? rec.currentValue ?? "";
   const isSection = SECTION_CHANGES.includes(changeType);
+  const unchanged =
+    changeType === rec.suggestedChangeType && rec.currentValue != null && proposedValue.replace(/\s+/g, " ").trim() === rec.currentValue.replace(/\s+/g, " ").trim();
   const m = revise ? actions.newProposal : actions.approve;
+  const send = (acknowledgeOriginalityCheckId?: string) =>
+    m.mutate({ recId: rec.id, changeType, targetSection: isSection ? targetSection : null, proposedValue, acknowledgeOriginalityCheckId }, { onSuccess: onDone });
   function submit(ev: FormEvent) {
     ev.preventDefault();
-    m.mutate({ recId: rec.id, changeType, targetSection: isSection ? targetSection : null, proposedValue }, { onSuccess: onDone });
+    send();
   }
   return (
     <form onSubmit={submit} className="space-y-2 rounded-md border border-line2 bg-rail p-3">
@@ -311,11 +362,20 @@ function ProposalForm({ rec, review, actions, revise, onDone }: { rec: Recommend
         )}
       </div>
       <label className="block text-[12px] text-ink2">Proposed value
-        <textarea className={textareaClass} rows={changeType === "SECTION_CONTENT" ? 8 : 2} value={proposedValue} onChange={(x) => setProposedValue(x.target.value)} required />
+        <textarea
+          className={textareaClass}
+          rows={changeType === "SECTION_CONTENT" ? 8 : 2}
+          value={proposedValue}
+          onChange={(x) => setTyped(x.target.value)}
+          required
+        />
       </label>
-      <ErrorText error={m.error} />
+      {rec.draft && proposedValue === rec.draft.value && <p className="text-[11.5px] text-ink3">Pre-filled with the AI draft. Edit it as needed; the proposal records whether it was changed.</p>}
+      {unchanged && <p className="text-[11.5px] text-coral">This is the current value. Change it before creating a proposal.</p>}
+      <OriginalitySection rec={rec} actions={actions} text={proposedValue} changeType={changeType} targetSection={isSection ? targetSection : null} canCheck />
+      <OriginalityGate key={m.submittedAt} error={m.error} pending={m.isPending} onAcknowledge={(id) => send(id)} />
       <div className="flex gap-2">
-        <Button type="submit" disabled={m.isPending}>{revise ? "Create proposal" : "Approve & create proposal"}</Button>
+        <Button type="submit" disabled={m.isPending || unchanged}>{revise ? "Create proposal" : "Approve & create proposal"}</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>
     </form>
@@ -350,7 +410,12 @@ function ProposalView({ p, canDecide, actions }: { p: Proposal; canDecide: boole
         <span className="font-medium">{CHANGE_LABEL[p.changeType]}</span>
         {p.targetSection && <span className="font-mono text-ink3">{p.targetSection}</span>}
         <Chip tone={PROPOSAL_TONE[p.status]}>{p.status.toLowerCase().replace(/_/g, " ")}</Chip>
-        <span className="text-ink3">rev {p.revision} · page version v{p.pageVersionNo} · {p.source === "HUMAN_EDITED" ? "human-edited" : "from AI recommendation"}</span>
+        <span className="text-ink3">rev {p.revision} · page version v{p.pageVersionNo} · {SOURCE_LABEL[p.source]}</span>
+        {p.originalityStatus && p.originalityStatus !== "NOT_CHECKED" && (
+          <Chip tone={p.originalityStatus === "CHECKED" ? "rest" : "coral"}>
+            originality {p.originalityStatus === "CHECKED" ? "checked" : "check failed"}{p.originalityAcknowledgedAt ? " · matches acknowledged" : ""}
+          </Chip>
+        )}
       </div>
       {live && !p.matchesCurrentPageVersion && (
         <p className="mb-2 text-[12px] text-coral">The page has changed since version v{p.pageVersionNo}. This proposal cannot be applied as-is.</p>
@@ -382,7 +447,15 @@ function ProposalView({ p, canDecide, actions }: { p: Proposal; canDecide: boole
           </Button>
         </div>
       )}
-      <ErrorText error={actions.approveProposal.error ?? actions.rejectProposal.error} />
+      {actions.approveProposal.variables?.proposalId === p.id && (
+        <OriginalityGate
+          key={actions.approveProposal.submittedAt}
+          error={actions.approveProposal.error}
+          pending={actions.approveProposal.isPending}
+          onAcknowledge={(id) => actions.approveProposal.mutate({ proposalId: p.id, acknowledgeOriginalityCheckId: id })}
+        />
+      )}
+      <ErrorText error={actions.rejectProposal.error} />
     </div>
   );
 }

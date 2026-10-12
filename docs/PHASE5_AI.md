@@ -9,7 +9,8 @@ POST …/opportunities/:id/analyze  (EDITOR, 202)
   → AIAnalysisRun QUEUED → BullMQ "ai-analysis" (jobId = runId)
 worker: RUNNING → buildAIContext (fresh, tenant-scoped)
   → AIProvider.analyzeOpportunity   (prompt opportunity-analysis-v1)  → Zod + grounding checks
-  → AIProvider.generateRecommendation (prompt recommendation-v1)    → Zod + grounding checks
+  → AIProvider.generateRecommendation (prompt recommendation-v2)    → Zod + grounding checks
+  → sanitizeDrafts (drafts.ts): invalid drafts dropped, reasons kept in draftIssues
   → OpportunityAnalysis row + run COMPLETED (one transaction)
 GET …/opportunities/:id/analysis (VIEWER) → { latestRun, analysis | null }
 ```
@@ -25,7 +26,8 @@ services/ai/
   ai.schemas.ts           Zod: OpportunityAnalysis, Observation, Interpretation, SearchIntent, ContentGap, Recommendation, RecommendationSet
   ai.guardrails.ts        grounding checks on schema-valid output
   ai-context.builder.ts   AIContext from stored data (CONTEXT_VERSION = opportunity-context-v1)
-  prompts/                versioned prompt files (shared-rules, opportunity-analysis-v1, recommendation-v1)
+  prompts/                versioned prompt files (shared-rules, opportunity-analysis-v1, recommendation-v2, draft-v1)
+  drafts.ts               draft targets, limits and validation for AI-drafted replacement copy
   opportunity-analysis.service.ts   request / get / runAIAnalysis
 repositories/ai-analysis.repository.ts, queues/ai-analysis.queue.ts, workers/ai-analysis.worker.ts
 ```
@@ -52,6 +54,32 @@ Choose an `AI_MODEL` whose OpenRouter page lists `structured_outputs`; otherwise
 3. **Stop reasons:** `refusal` → `AI_REFUSED`; `max_tokens` → `AI_TRUNCATED`.
 
 Any failure marks the run `FAILED` with an `errorCode`, raises `UnrecoverableError`, and is not retried.
+
+## AI drafts (`suggestedValue`, recommendation-v2)
+
+Each recommendation carries `suggestedValue`: concrete replacement copy, or `null`. Drafts are allowed only for these types:
+
+| Recommendation | Replaces | Default max length |
+|---|---|---|
+| `TITLE` | title | 70 (`AI_DRAFT_MAX_TITLE`) |
+| `META_DESCRIPTION` | meta description | 160 (`AI_DRAFT_MAX_META_DESCRIPTION`) |
+| `HEADING`, no `targetSection` | H1 | 90 (`AI_DRAFT_MAX_H1`) |
+| `HEADING` with `targetSection` | that section's heading | 90 (`AI_DRAFT_MAX_SECTION_HEADING`) |
+| `INTRODUCTION` | intro section text, only when `targetSection` is the page's first section and it has no heading | 1200 (`AI_DRAFT_MAX_INTRODUCTION`) |
+
+`checkDraft` (`drafts.ts`) rejects a draft when any of these hold:
+- the type may not carry a draft
+- it is empty, longer than its limit or shorter than its minimum
+- a single-line field spans several lines, or it contains markup or links
+- it is identical to the current value
+- it uses the shared overclaim wording (negated "not guaranteed" disclaimers still pass)
+- it contains an **unsupported claim**: a number, price, rate, offer, credential or superlative term, or a capitalized name or place, that isn't in the page's own text. Names may also come from its GSC queries. A query asking for a price never makes a price claim acceptable.
+
+During analysis, an invalid draft is dropped: the recommendation is kept, `suggestedValue` becomes `null`, and the reasons go in `draftIssues`. The run still fails on overclaim wording anywhere, drafts included, exactly as before.
+
+A reviewer can request a new draft (Phase 6, `POST …/recommendations/:id/draft`, prompt `draft-v1`, `AIProvider.generateDraft`). The result goes through the same checks. Valid drafts are stored as a new `RecommendationDraft` revision; invalid, empty or repeated ones are discarded and audited as `recommendation.draft_failed`. `AI_DRAFT_MAX_REGENERATIONS` (default 5) caps requests per recommendation.
+
+The checks are deterministic and deliberately strict. A false positive only means the reviewer writes the copy themselves.
 
 ## Errors and retries
 

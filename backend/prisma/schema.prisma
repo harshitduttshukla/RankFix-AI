@@ -28,26 +28,26 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  memberships  Membership[]
-  sessions     Session[]
-  approvals    OptimizationApproval[]
-  auditLogs    AuditLog[]
+  memberships    Membership[]
+  sessions       Session[]
+  approvals      OptimizationApproval[]
+  auditLogs      AuditLog[]
   gscConnections GSCConnection[]
 }
 
 // Refresh-token session. Token is random; only its sha256 is stored. Rotated on every refresh;
 // reuse of a rotated token revokes the whole family (token theft signal).
 model Session {
-  id          String    @id @default(cuid())
-  userId      String
-  familyId    String
-  tokenHash   String    @unique
-  expiresAt   DateTime
-  rotatedAt   DateTime?
-  revokedAt   DateTime?
-  userAgent   String?
-  ip          String?
-  createdAt   DateTime  @default(now())
+  id        String    @id @default(cuid())
+  userId    String
+  familyId  String
+  tokenHash String    @unique
+  expiresAt DateTime
+  rotatedAt DateTime?
+  revokedAt DateTime?
+  userAgent String?
+  ip        String?
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -84,8 +84,8 @@ model Project {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  websites     Website[]
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  websites      Website[]
   gscConnection GSCConnection?
 
   @@unique([id, organizationId]) // target for composite tenant FKs
@@ -99,24 +99,24 @@ enum UpdateProviderType {
 }
 
 model Website {
-  id             String   @id @default(cuid())
-  organizationId String
-  projectId      String
-  baseUrl        String   // normalized origin, e.g. https://example.com
-  hostname       String   // crawl allow-list (SSRF guard)
-  blogPathPrefix String?  // e.g. "/blog/" — limits discovery to blog pages
+  id                String             @id @default(cuid())
+  organizationId    String
+  projectId         String
+  baseUrl           String // normalized origin, e.g. https://example.com
+  hostname          String // crawl allow-list (SSRF guard)
+  blogPathPrefix    String? // e.g. "/blog/" — limits discovery to blog pages
   // Content update provider config (single mechanism in V1)
-  updateProvider         UpdateProviderType @default(SITE_UPDATE_API)
-  updateEndpointUrl      String?  // e.g. https://example.com/_gsc-optimizer (same host as baseUrl)
-  updateSecretEnc        String?  // HMAC secret, AES-256-GCM, never returned by API
-  lastCrawledAt  DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  updateProvider    UpdateProviderType @default(SITE_UPDATE_API)
+  updateEndpointUrl String? // e.g. https://example.com/_gsc-optimizer (same host as baseUrl)
+  updateSecretEnc   String? // HMAC secret, AES-256-GCM, never returned by API
+  lastCrawledAt     DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
-  project      Project        @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  pages        ContentPage[]
-  crawlJobs    CrawlJob[]
-  gscProperty  GSCProperty?
+  project     Project       @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  pages       ContentPage[]
+  crawlJobs   CrawlJob[]
+  gscProperty GSCProperty?
 
   @@unique([projectId, hostname])
   @@unique([id, projectId, organizationId])
@@ -125,10 +125,10 @@ model Website {
 
 enum PageStatus {
   ACTIVE
-  GONE       // 404/410 on latest crawl
-  EXCLUDED   // noindex / robots disallow / non-HTML
+  GONE // 404/410 on latest crawl
+  EXCLUDED // noindex / robots disallow / non-HTML
   REDIRECTED // URL now redirects elsewhere (see redirectedTo)
-  ERROR      // last crawl failed (5xx, timeout, ...); previous version kept
+  ERROR // last crawl failed (5xx, timeout, ...); previous version kept
 }
 
 enum ExtractionMethod {
@@ -141,23 +141,23 @@ model ContentPage {
   organizationId   String
   projectId        String
   websiteId        String
-  url              String     // normalized absolute URL (matches GSC `page`)
+  url              String // normalized absolute URL (matches GSC `page`)
   canonicalUrl     String?
-  externalId       String?    // site-side page id returned by the Site Update API
+  externalId       String? // site-side page id returned by the Site Update API
   httpStatus       Int
   status           PageStatus @default(ACTIVE)
   currentVersionId String?    @unique
   currentVersionNo Int        @default(0) // optimistic-concurrency counter
-  redirectedTo     String?    // normalized target when status = REDIRECTED
+  redirectedTo     String? // normalized target when status = REDIRECTED
   noindex          Boolean    @default(false)
   lastCrawledAt    DateTime
   lastCrawlJobId   String?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
-  website        Website              @relation(fields: [websiteId, projectId, organizationId], references: [id, projectId, organizationId], onDelete: Cascade)
-  versions       ContentPageVersion[] @relation("PageVersions")
-  currentVersion ContentPageVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  website        Website                   @relation(fields: [websiteId, projectId, organizationId], references: [id, projectId, organizationId], onDelete: Cascade)
+  versions       ContentPageVersion[]      @relation("PageVersions")
+  currentVersion ContentPageVersion?       @relation("CurrentVersion", fields: [currentVersionId], references: [id])
   opportunities  OptimizationOpportunity[]
 
   @@unique([websiteId, url])
@@ -166,42 +166,42 @@ model ContentPage {
 }
 
 enum VersionSource {
-  CRAWL         // observed on the live site
-  OPTIMIZATION  // written by an applied proposal
-  PRE_UPDATE    // live snapshot taken immediately before applying
+  CRAWL // observed on the live site
+  OPTIMIZATION // written by an applied proposal
+  PRE_UPDATE // live snapshot taken immediately before applying
 }
 
 model ContentPageVersion {
-  id              String        @id @default(cuid())
-  organizationId  String
-  pageId          String
-  versionNo       Int
-  source          VersionSource
-  title           String?
-  metaDescription String?
-  canonicalUrl    String?
-  language        String?
-  robotsMeta      String?
-  seoMeta         Json          // {og:{...}, twitter:{...}, charset, viewport}
-  h1              String?
-  headings        Json          // [{level, text, order}]
-  sections        Json          // ordered ExtractedSection[] (also normalized into PageSection)
-  bodyHtml        String        // cleaned main-content HTML
-  bodyText        String
-  wordCount       Int
-  contentHash     String        // sha256 of canonical meaningful content (not raw HTML)
-  rawHtml         String?       // original HTTP response body (source snapshot)
-  renderedHtml    String?       // final DOM when extractionMethod = PLAYWRIGHT
+  id               String            @id @default(cuid())
+  organizationId   String
+  pageId           String
+  versionNo        Int
+  source           VersionSource
+  title            String?
+  metaDescription  String?
+  canonicalUrl     String?
+  language         String?
+  robotsMeta       String?
+  seoMeta          Json // {og:{...}, twitter:{...}, charset, viewport}
+  h1               String?
+  headings         Json // [{level, text, order}]
+  sections         Json // ordered ExtractedSection[] (also normalized into PageSection)
+  bodyHtml         String // cleaned main-content HTML
+  bodyText         String
+  wordCount        Int
+  contentHash      String // sha256 of canonical meaningful content (not raw HTML)
+  rawHtml          String? // original HTTP response body (source snapshot)
+  renderedHtml     String? // final DOM when extractionMethod = PLAYWRIGHT
   extractionMethod ExtractionMethod?
-  crawlerVersion  String?
-  httpStatus      Int?
-  invalidJsonLd   Int           @default(0)
-  crawlJobId      String?
-  createdAt       DateTime      @default(now())
-  createdByRunId  String?
+  crawlerVersion   String?
+  httpStatus       Int?
+  invalidJsonLd    Int               @default(0)
+  crawlJobId       String?
+  createdAt        DateTime          @default(now())
+  createdByRunId   String?
 
-  page           ContentPage          @relation("PageVersions", fields: [pageId], references: [id], onDelete: Cascade)
-  currentOf      ContentPage?         @relation("CurrentVersion")
+  page           ContentPage            @relation("PageVersions", fields: [pageId], references: [id], onDelete: Cascade)
+  currentOf      ContentPage?           @relation("CurrentVersion")
   pageSections   PageSection[]
   links          PageLink[]
   images         PageImage[]
@@ -213,17 +213,17 @@ model ContentPageVersion {
 }
 
 model PageSection {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   organizationId String
   versionId      String
-  sectionKey     String   // stable within a version, e.g. "s2-what-is-react"
+  sectionKey     String // stable within a version, e.g. "s2-what-is-react"
   order          Int
   heading        String?
-  level          Int      // 0 = intro before first heading
+  level          Int // 0 = intro before first heading
   html           String
   text           String
   wordCount      Int
-  blocks         Json     // [{type:'p'|'ul'|'ol'|'blockquote'|'table'|'pre'|'img', text, items?}]
+  blocks         Json // [{type:'p'|'ul'|'ol'|'blockquote'|'table'|'pre'|'img', text, items?}]
 
   version ContentPageVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
@@ -238,7 +238,7 @@ model PageLink {
   targetUrl      String
   anchorText     String
   isInternal     Boolean
-  inContent      Boolean  // inside the main content area (vs nav/footer)
+  inContent      Boolean // inside the main content area (vs nav/footer)
   rel            String[]
   nofollow       Boolean  @default(false)
 
@@ -249,11 +249,11 @@ model PageLink {
 }
 
 model PageImage {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   organizationId String
   versionId      String
   src            String
-  alt            String?  // null = attribute missing; "" = decorative
+  alt            String? // null = attribute missing; "" = decorative
   title          String?
   width          Int?
   height         Int?
@@ -296,30 +296,30 @@ enum CrawlOutcome {
 }
 
 model CrawlJob {
-  id                 String      @id @default(cuid())
-  organizationId     String
-  projectId          String
-  websiteId          String
-  requestedById      String?
-  status             CrawlStatus @default(PENDING)
-  discoveryMethod    String?     // "sitemap" | "links"
-  sitemapUrls        Json?       // sitemap files actually read
-  robotsFound        Boolean?
-  config             Json        // limits snapshot
-  pagesDiscovered    Int         @default(0)
-  pagesProcessed     Int         @default(0)
-  pagesSucceeded     Int         @default(0)
-  pagesFailed        Int         @default(0)
-  pagesSkipped       Int         @default(0)
-  pagesCreated       Int         @default(0)
-  pagesUpdated       Int         @default(0)
-  pagesUnchanged     Int         @default(0)
-  renderedPages      Int         @default(0)
-  error              String?
-  cancelRequestedAt  DateTime?
-  startedAt          DateTime?
-  completedAt        DateTime?
-  createdAt          DateTime    @default(now())
+  id                String      @id @default(cuid())
+  organizationId    String
+  projectId         String
+  websiteId         String
+  requestedById     String?
+  status            CrawlStatus @default(PENDING)
+  discoveryMethod   String? // "sitemap" | "links"
+  sitemapUrls       Json? // sitemap files actually read
+  robotsFound       Boolean?
+  config            Json // limits snapshot
+  pagesDiscovered   Int         @default(0)
+  pagesProcessed    Int         @default(0)
+  pagesSucceeded    Int         @default(0)
+  pagesFailed       Int         @default(0)
+  pagesSkipped      Int         @default(0)
+  pagesCreated      Int         @default(0)
+  pagesUpdated      Int         @default(0)
+  pagesUnchanged    Int         @default(0)
+  renderedPages     Int         @default(0)
+  error             String?
+  cancelRequestedAt DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime    @default(now())
 
   website Website           @relation(fields: [websiteId, projectId, organizationId], references: [id, projectId, organizationId], onDelete: Cascade)
   results CrawlPageResult[]
@@ -357,14 +357,14 @@ model GSCConnection {
   projectId       String    @unique
   connectedById   String
   googleEmail     String
-  refreshTokenEnc String    // AES-256-GCM (iv:tag:ciphertext)
-  scope           String    // must equal webmasters.readonly
+  refreshTokenEnc String // AES-256-GCM (iv:tag:ciphertext)
+  scope           String // must equal webmasters.readonly
   revokedAt       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  connectedBy User    @relation(fields: [connectedById], references: [id])
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  connectedBy User          @relation(fields: [connectedById], references: [id])
   properties  GSCProperty[]
 
   @@index([organizationId])
@@ -383,7 +383,7 @@ model GSCProperty {
   projectId       String
   connectionId    String
   websiteId       String     @unique
-  siteUrl         String     // "sc-domain:example.com" or "https://example.com/"
+  siteUrl         String // "sc-domain:example.com" or "https://example.com/"
   permissionLevel String
   lastSyncedAt    DateTime?
   lastSyncedDate  DateTime?  @db.Date // last GSC date fetched (incremental sync)
@@ -407,8 +407,8 @@ model GSCSearchAnalytics {
   projectId      String
   propertyId     String
   date           DateTime @db.Date
-  page           String   // normalized URL
-  query          String   // '' = page-level total row
+  page           String // normalized URL
+  query          String // '' = page-level total row
   clicks         Int
   impressions    Int
   ctr            Float
@@ -439,11 +439,11 @@ enum OpportunityStatus {
 }
 
 enum OpportunityType {
-  LOW_CTR                     // CTR well below the expected CTR for the page's position
-  PAGE_ONE_NEAR_TOP           // ranking just below the top results with real visibility
+  LOW_CTR // CTR well below the expected CTR for the page's position
+  PAGE_ONE_NEAR_TOP // ranking just below the top results with real visibility
   HIGH_IMPRESSIONS_LOW_CLICKS // very high impressions, low absolute CTR
-  PERFORMANCE_DECLINE         // clicks/CTR down vs the previous window
-  CONTENT_COVERAGE_SIGNAL     // high-impression query terms absent from title/headings
+  PERFORMANCE_DECLINE // clicks/CTR down vs the previous window
+  CONTENT_COVERAGE_SIGNAL // high-impression query terms absent from title/headings
 }
 
 // Deduplication: at most one non-terminal opportunity per (page, type),
@@ -453,12 +453,12 @@ model OptimizationOpportunity {
   organizationId  String
   projectId       String
   websiteId       String
-  pageId          String            // NOT NULL + composite FK => page must exist in same website/project/org
+  pageId          String // NOT NULL + composite FK => page must exist in same website/project/org
   pageUrl         String
   pageTitle       String?
   type            OpportunityType
-  score           Float             // 0..100
-  scoreBreakdown  Json              // [{component, value, weight, points}]
+  score           Float // 0..100
+  scoreBreakdown  Json // [{component, value, weight, points}]
   dateRangeStart  DateTime          @db.Date
   dateRangeEnd    DateTime          @db.Date
   // Sortable copies of the current-window page totals (full detail lives in `metrics`).
@@ -466,14 +466,14 @@ model OptimizationOpportunity {
   impressions     Int
   ctr             Float
   position        Float
-  metrics         Json              // {current, previous, expectedCtr, queryCount, ...}
-  evidence        Json              // [{type, metric, value, threshold, comparison, text}]
-  topQueries      Json              // [{query, clicks, impressions, ctr, position}]
-  analysis        Json?             // validated PageAnalysis (AI, Phase 5)
+  metrics         Json // {current, previous, expectedCtr, queryCount, ...}
+  evidence        Json // [{type, metric, value, threshold, comparison, text}]
+  topQueries      Json // [{query, clicks, impressions, ctr, position}]
+  analysis        Json? // validated PageAnalysis (AI, Phase 5)
   status          OpportunityStatus @default(DETECTED)
   failureReason   String?
   dismissReason   String?
-  rejectionReason String?           // human rejected the opportunity after review (Phase 6)
+  rejectionReason String? // human rejected the opportunity after review (Phase 6)
   reviewedById    String?
   reviewedAt      DateTime?
   dismissedById   String?
@@ -507,22 +507,22 @@ enum DetectionTrigger {
 }
 
 model OpportunityDetectionRun {
-  id              String           @id @default(cuid())
-  organizationId  String
-  projectId       String
-  requestedById   String?
-  trigger         DetectionTrigger
-  status          DetectionStatus  @default(QUEUED)
-  config          Json?            // threshold snapshot used for this run
-  websitesEvaluated Int            @default(0)
-  pagesEvaluated  Int              @default(0)
-  created         Int              @default(0)
-  updated         Int              @default(0)
-  cleared         Int              @default(0)
-  error           String?
-  startedAt       DateTime?
-  completedAt     DateTime?
-  createdAt       DateTime         @default(now())
+  id                String           @id @default(cuid())
+  organizationId    String
+  projectId         String
+  requestedById     String?
+  trigger           DetectionTrigger
+  status            DetectionStatus  @default(QUEUED)
+  config            Json? // threshold snapshot used for this run
+  websitesEvaluated Int              @default(0)
+  pagesEvaluated    Int              @default(0)
+  created           Int              @default(0)
+  updated           Int              @default(0)
+  cleared           Int              @default(0)
+  error             String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime         @default(now())
 
   @@index([organizationId, projectId, createdAt])
 }
@@ -546,45 +546,53 @@ enum ProposalChangeType {
 
 enum ProposalSource {
   AI_RECOMMENDATION // proposal derived from an unedited AI recommendation
-  HUMAN_EDITED      // derived from a recommendation a human edited
+  HUMAN_EDITED // derived from a recommendation a human edited, or a value that differs from the AI draft it started from
+  AI_DRAFT // proposedValue is an unedited, validated AI draft (draftId: regenerated draft; null: the analysis draft)
 }
 
 // A concrete, human-reviewed change bound to the exact page version that was analyzed.
 // Source values (changeType, target, currentValue, proposedValue, pageVersionId) are never edited after creation;
 // a different change is a new revision that SUPERSEDES the previous one.
 model OptimizationProposal {
-  id                       String             @id @default(cuid())
-  organizationId           String
-  projectId                String
-  websiteId                String
-  opportunityId            String
-  recommendationReviewId   String
-  analysisId               String
-  pageId                   String
-  pageVersionId            String             // the analyzed ContentPageVersion
-  changeType               ProposalChangeType
-  targetSection            String?            // sectionKey for SECTION_* changes
-  currentValue             String?            // read from pageVersionId by the backend, never from the client
-  proposedValue            String
-  source                   ProposalSource
-  revision                 Int                @default(1)
-  supersedesId             String?
-  status                   ProposalStatus     @default(AWAITING_APPROVAL)
-  createdById              String
-  approvedById             String?
-  approvedAt               DateTime?
-  approvedAgainstVersionId String?            // page.currentVersionId at approval (must equal pageVersionId)
-  rejectedById             String?
-  rejectedAt               DateTime?
-  rejectionReason          String?
-  createdAt                DateTime           @default(now())
-  updatedAt                DateTime           @updatedAt
+  id                          String             @id @default(cuid())
+  organizationId              String
+  projectId                   String
+  websiteId                   String
+  opportunityId               String
+  recommendationReviewId      String
+  analysisId                  String
+  pageId                      String
+  pageVersionId               String // the analyzed ContentPageVersion
+  changeType                  ProposalChangeType
+  targetSection               String? // sectionKey for SECTION_* changes
+  currentValue                String? // read from pageVersionId by the backend, never from the client
+  proposedValue               String
+  source                      ProposalSource
+  draftId                     String? // the regenerated draft this value started from (null: analysis draft or none)
+  originalityCheckId          String? // the check run on this exact proposedValue (null: not applicable or not checked)
+  originalityStatus           String? // NOT_CHECKED | CHECKED | CHECK_FAILED, snapshot at creation
+  originalityAcknowledgedById String? // reviewer who acknowledged significant matches
+  originalityAcknowledgedAt   DateTime?
+  revision                    Int                @default(1)
+  supersedesId                String?
+  status                      ProposalStatus     @default(AWAITING_APPROVAL)
+  createdById                 String
+  approvedById                String?
+  approvedAt                  DateTime?
+  approvedAgainstVersionId    String? // page.currentVersionId at approval (must equal pageVersionId)
+  rejectedById                String?
+  rejectedAt                  DateTime?
+  rejectionReason             String?
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
 
-  opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
-  review      RecommendationReview    @relation(fields: [recommendationReviewId], references: [id], onDelete: Cascade)
-  pageVersion ContentPageVersion      @relation(fields: [pageVersionId], references: [id], onDelete: Restrict)
-  approval    OptimizationApproval?
-  run         OptimizationRun?
+  opportunity      OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  review           RecommendationReview    @relation(fields: [recommendationReviewId], references: [id], onDelete: Cascade)
+  pageVersion      ContentPageVersion      @relation(fields: [pageVersionId], references: [id], onDelete: Restrict)
+  draft            RecommendationDraft?    @relation(fields: [draftId], references: [id], onDelete: NoAction)
+  originalityCheck OriginalityCheck?       @relation(fields: [originalityCheckId], references: [id], onDelete: NoAction)
+  approval         OptimizationApproval?
+  run              OptimizationRun?
 
   @@index([organizationId, projectId, status])
   @@index([opportunityId])
@@ -603,7 +611,7 @@ model OptimizationApproval {
   decidedById    String
   decision       ApprovalDecision
   comment        String?
-  proposalHash   String           // hash of afterContent at approval time; apply refuses if edited after approval
+  proposalHash   String // hash of afterContent at approval time; apply refuses if edited after approval
   createdAt      DateTime         @default(now())
 
   proposal  OptimizationProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
@@ -623,16 +631,16 @@ model OptimizationRun {
   opportunityId     String
   proposalId        String    @unique
   pageId            String
-  previousVersionId String    // PRE_UPDATE snapshot
-  newVersionId      String?   // OPTIMIZATION version
+  previousVersionId String // PRE_UPDATE snapshot
+  newVersionId      String? // OPTIMIZATION version
   status            RunStatus
   error             String?
   appliedById       String
   appliedAt         DateTime?
   createdAt         DateTime  @default(now())
 
-  opportunity  OptimizationOpportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
-  proposal     OptimizationProposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  opportunity  OptimizationOpportunity   @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  proposal     OptimizationProposal      @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   measurements OptimizationMeasurement[]
 
   @@index([organizationId, projectId])
@@ -654,8 +662,8 @@ model OptimizationMeasurement {
   impressions    Int
   ctr            Float
   position       Float
-  queries        Json            // top queries in window
-  dataComplete   Boolean         // false if GSC data for window not yet final
+  queries        Json // top queries in window
+  dataComplete   Boolean // false if GSC data for window not yet final
   capturedAt     DateTime        @default(now())
 
   run OptimizationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -669,8 +677,8 @@ model AuditLog {
   id             String   @id @default(cuid())
   organizationId String
   projectId      String?
-  actorUserId    String?  // null = system/worker
-  action         String   // e.g. proposal.approved, page.updated, gsc.connected
+  actorUserId    String? // null = system/worker
+  action         String // e.g. proposal.approved, page.updated, gsc.connected
   entityType     String
   entityId       String
   metadata       Json?
@@ -700,9 +708,9 @@ model AIAnalysisRun {
   websiteId      String
   opportunityId  String
   requestedById  String?
-  provider       String      // e.g. "anthropic"
+  provider       String // e.g. "anthropic"
   model          String
-  promptVersion  String      // e.g. "opportunity-analysis-v1+recommendation-v1"
+  promptVersion  String // e.g. "opportunity-analysis-v1+recommendation-v1"
   contextVersion String
   status         AIRunStatus @default(QUEUED)
   attempts       Int         @default(0)
@@ -711,7 +719,7 @@ model AIAnalysisRun {
   latencyMs      Int?
   inputTokens    Int?
   outputTokens   Int?
-  errorCode      String?     // AI_OUTPUT_INVALID | AI_REFUSED | PROVIDER_ERROR | ...
+  errorCode      String? // AI_OUTPUT_INVALID | AI_REFUSED | PROVIDER_ERROR | ...
   errorMessage   String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -725,23 +733,23 @@ model AIAnalysisRun {
 
 // A validated AI analysis + recommendations for human review. Only written after schema and guardrail checks pass.
 model OpportunityAnalysis {
-  id             String   @id @default(cuid())
-  organizationId String
-  projectId      String
-  websiteId      String
-  opportunityId  String
-  runId          String   @unique
-  pageVersionId  String?  // content version the analysis was based on
-  provider       String
-  model          String
-  promptVersion  String
-  contextVersion String
-  analysis       Json     // OpportunityAnalysis (observations, searchIntent, contentGaps, ...)
-  recommendations Json    // Recommendation[]
-  evidenceSnapshot Json?  // opportunity metrics at analysis time, for deterministic staleness (Phase 6)
-  staleAt        DateTime?
-  staleReason    String?  // PAGE_VERSION_CHANGED | EVIDENCE_CHANGED | NO_PAGE_VERSION
-  createdAt      DateTime @default(now())
+  id               String    @id @default(cuid())
+  organizationId   String
+  projectId        String
+  websiteId        String
+  opportunityId    String
+  runId            String    @unique
+  pageVersionId    String? // content version the analysis was based on
+  provider         String
+  model            String
+  promptVersion    String
+  contextVersion   String
+  analysis         Json // OpportunityAnalysis (observations, searchIntent, contentGaps, ...)
+  recommendations  Json // Recommendation[]
+  evidenceSnapshot Json? // opportunity metrics at analysis time, for deterministic staleness (Phase 6)
+  staleAt          DateTime?
+  staleReason      String? // PAGE_VERSION_CHANGED | EVIDENCE_CHANGED | NO_PAGE_VERSION
+  createdAt        DateTime  @default(now())
 
   opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   run         AIAnalysisRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -754,7 +762,7 @@ model OpportunityAnalysis {
 
 enum RecommendationReviewStatus {
   PENDING
-  EDITED   // a human changed the recommendation; still awaiting a decision
+  EDITED // a human changed the recommendation; still awaiting a decision
   APPROVED // turned into a concrete proposal
   REJECTED
 }
@@ -777,8 +785,8 @@ model RecommendationReview {
   opportunityId       String
   analysisId          String
   recommendationIndex Int
-  original            Json                           // AI recommendation as produced (immutable)
-  edited              Json?                          // human-edited version
+  original            Json // AI recommendation as produced (immutable)
+  edited              Json? // human-edited version
   editedById          String?
   editedAt            DateTime?
   status              RecommendationReviewStatus     @default(PENDING)
@@ -789,10 +797,78 @@ model RecommendationReview {
   createdAt           DateTime                       @default(now())
   updatedAt           DateTime                       @updatedAt
 
-  opportunity OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
-  analysis    OpportunityAnalysis     @relation(fields: [analysisId], references: [id], onDelete: Cascade)
-  proposals   OptimizationProposal[]
+  opportunity       OptimizationOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  analysis          OpportunityAnalysis     @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  proposals         OptimizationProposal[]
+  drafts            RecommendationDraft[]
+  originalityChecks OriginalityCheck[]
 
   @@unique([analysisId, recommendationIndex])
+  @@index([organizationId, projectId, opportunityId])
+}
+
+// An AI draft requested by a reviewer after the analysis (the analysis's own draft stays in RecommendationReview.original).
+// Append-only: only drafts that passed validation are stored; each new request adds a revision.
+model RecommendationDraft {
+  id                     String   @id @default(cuid())
+  organizationId         String
+  projectId              String
+  websiteId              String
+  opportunityId          String
+  recommendationReviewId String
+  analysisId             String
+  pageVersionId          String // the analyzed version the draft was generated from
+  revision               Int // 1, 2, ... (the analysis draft is revision 0)
+  value                  String
+  note                   String?
+  provider               String
+  model                  String
+  promptVersion          String
+  requestedById          String
+  latencyMs              Int?
+  inputTokens            Int?
+  outputTokens           Int?
+  createdAt              DateTime @default(now())
+
+  review    RecommendationReview   @relation(fields: [recommendationReviewId], references: [id], onDelete: Cascade)
+  proposals OptimizationProposal[]
+
+  @@unique([recommendationReviewId, revision])
+  @@index([organizationId, projectId, opportunityId])
+}
+
+// Originality check of one exact text for one field of the analyzed page version. Append-only.
+// Matches come from this project's own crawled pages only; a result never claims text is plagiarism-free.
+model OriginalityCheck {
+  id                     String   @id @default(cuid())
+  organizationId         String
+  projectId              String
+  websiteId              String
+  opportunityId          String
+  recommendationReviewId String
+  pageId                 String
+  pageVersionId          String // analyzed version whose field the text would replace
+  draftId                String? // regenerated draft checked, if the text was one (null: analysis draft or reviewer text)
+  changeType             String
+  targetSection          String?
+  text                   String // exact normalized text that was checked
+  textHash               String // sha256 of text; a different text means this result is stale
+  status                 String // CHECKED | CHECK_FAILED
+  assessment             String? // NO_MATCHES | INFORMATIONAL_MATCHES | MINOR_MATCHES | SIGNIFICANT_MATCHES
+  overlapRatio           Float? // share of the text's words inside non-informational matches (not a plagiarism score)
+  matches                Json // OriginalityMatch[]
+  corpusPages            Int?
+  checker                String
+  checkerVersion         String
+  limitations            Json
+  errorCode              String?
+  errorMessage           String?
+  checkedById            String
+  createdAt              DateTime @default(now())
+
+  review    RecommendationReview   @relation(fields: [recommendationReviewId], references: [id], onDelete: Cascade)
+  proposals OptimizationProposal[]
+
+  @@index([recommendationReviewId, textHash, createdAt])
   @@index([organizationId, projectId, opportunityId])
 }
