@@ -2,8 +2,8 @@
 
 import { useState, type FormEvent, type ReactNode } from "react";
 import type { ReviewActions } from "@/hooks/use-review";
-import { fmtDateTime } from "@/lib/format";
-import type { Analysis, AnalysisState, ChangeType, Proposal, RecommendationReview, RejectionReason, ReviewPayload } from "@/lib/types";
+import { fmtDateTime, fmtInt, fmtPct, fmtPos } from "@/lib/format";
+import type { Analysis, AnalysisState, ApplyRun, ChangeType, Proposal, RecommendationReview, RejectionReason, ReviewPayload } from "@/lib/types";
 import { OriginalityGate, OriginalitySection } from "./originality";
 import { Banner, Button, Card, Chip, ErrorText, selectClass, type Tone } from "./ui";
 
@@ -249,7 +249,7 @@ export function RecommendationCard({
           <div className="space-y-2 border-t border-line2 pt-3">
             <h4 className="text-[12.5px] font-medium">Proposal</h4>
             {[...rec.proposals].reverse().map((p) => (
-              <ProposalView key={p.id} p={p} canDecide={reviewable && analysisCurrent} actions={actions} />
+              <ProposalView key={p.id} p={p} canDecide={reviewable && analysisCurrent} canApply={canEdit} actions={actions} />
             ))}
             {reviewable && analysisCurrent && rec.status === "APPROVED" && mode === null && (
               <Button variant="secondary" onClick={() => setMode("revise")}>{liveProposal ? "Propose a different change" : "Create new proposal"}</Button>
@@ -475,7 +475,7 @@ function RejectForm({ rec, actions, onDone }: { rec: RecommendationReview; actio
   );
 }
 
-function ProposalView({ p, canDecide, actions }: { p: Proposal; canDecide: boolean; actions: ReviewActions }) {
+function ProposalView({ p, canDecide, canApply, actions }: { p: Proposal; canDecide: boolean; canApply: boolean; actions: ReviewActions }) {
   const live = p.status === "AWAITING_APPROVAL" || p.status === "APPROVED";
   return (
     <div className={`rounded-md border px-3 py-2.5 ${live ? "border-line" : "border-line2 opacity-70"}`}>
@@ -490,7 +490,7 @@ function ProposalView({ p, canDecide, actions }: { p: Proposal; canDecide: boole
           </Chip>
         )}
       </div>
-      {live && !p.matchesCurrentPageVersion && (
+      {live && !p.matchesCurrentPageVersion && !p.apply?.run && (
         <p className="mb-2 text-[12px] text-coral">The page has changed since version v{p.pageVersionNo}. This proposal cannot be applied as-is.</p>
       )}
       <div className="grid gap-2 md:grid-cols-2">
@@ -504,7 +504,8 @@ function ProposalView({ p, canDecide, actions }: { p: Proposal; canDecide: boole
         </div>
       </div>
       {p.status === "REJECTED" && p.rejectionReason && <p className="mt-1.5 text-[12px] text-ink2">Rejected: {p.rejectionReason}</p>}
-      {p.status === "APPROVED" && <p className="mt-1.5 text-[12px] text-ink2">Approved {fmtDateTime(p.approvedAt)}. Ready for the content-update step; not yet applied.</p>}
+      {p.status === "APPROVED" && !p.apply?.run && <p className="mt-1.5 text-[12px] text-ink2">Approved {fmtDateTime(p.approvedAt)}. Not applied yet.</p>}
+      {(p.status === "APPROVED" || p.apply?.run) && <ApplyPanel p={p} canApply={canApply} actions={actions} />}
       {canDecide && p.status === "AWAITING_APPROVAL" && (
         <div className="mt-2 flex gap-2">
           <Button disabled={actions.approveProposal.isPending || !p.matchesCurrentPageVersion} onClick={() => actions.approveProposal.mutate({ proposalId: p.id })}>Approve proposal</Button>
@@ -529,6 +530,111 @@ function ProposalView({ p, canDecide, actions }: { p: Proposal; canDecide: boole
         />
       )}
       <ErrorText error={actions.rejectProposal.error} />
+    </div>
+  );
+}
+
+// ───────────────────────── Apply & verify (Phase 7a) ─────────────────────────
+
+const FAILURE_TEXT: Record<string, string> = {
+  CONTENT_CONFLICT: "The live page shows a different value from both the approved one and the one it replaced. Nothing was changed. Set the exact approved value and check again, or abandon this opportunity and re-analyze the page.",
+  TARGET_MISSING: "The part of the page this change edits couldn’t be found (the page structure changed). Check the page, or abandon and re-analyze.",
+  PAGE_GONE: "The page returned “not found”. Check the URL is published, then check again.",
+  PAGE_REDIRECTED: "The page now redirects elsewhere, so the change couldn’t be verified on this URL.",
+  ROBOTS_DISALLOWED: "robots.txt blocks our crawler from this page, so it couldn’t be checked.",
+  NOT_HTML: "The URL didn’t return an HTML page.",
+  FETCH_FAILED: "The page couldn’t be fetched (network error, timeout or server error). Nothing was concluded; check again later.",
+  INTERNAL: "The check stopped unexpectedly. Nothing was concluded; check again.",
+  PROPOSAL_INTEGRITY: "This proposal no longer matches its approval record, so it can’t be verified.",
+  ABANDONED: "Verification was stopped because the opportunity was abandoned.",
+};
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      variant="secondary"
+      onClick={() =>
+        void navigator.clipboard?.writeText(text).then(
+          () => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          },
+          () => setCopied(false),
+        )
+      }
+    >
+      {copied ? "Copied" : "Copy approved value"}
+    </Button>
+  );
+}
+
+function RunStatus({ run }: { run: ApplyRun }) {
+  const d = run.verificationDetail;
+  if (run.status === "APPLYING") return <Banner tone="teal">Checking the live page… (attempt {run.verificationAttempts})</Banner>;
+  if (run.status === "APPLIED")
+    return (
+      <Banner tone="teal">
+        Verified on the live page {fmtDateTime(run.verifiedAt)}{d?.liveVersionNo ? ` (page version v${d.liveVersionNo})` : ""}. You made this change on your site; RankFix AI only checked it.
+      </Banner>
+    );
+  if (run.status === "AWAITING_CHANGE")
+    return (
+      <Banner tone="coral">
+        The live page still shows the previous value (checked {fmtDateTime(run.lastCheckedAt)}). Publish the change, clear any page cache, then check again.
+      </Banner>
+    );
+  return (
+    <Banner tone="coral">
+      Not verified{run.verificationError ? ` (${run.verificationError.toLowerCase().replace(/_/g, " ")})` : ""}: {FAILURE_TEXT[run.verificationError ?? ""] ?? "The check failed."}
+      {d?.httpStatus ? ` HTTP ${d.httpStatus}.` : ""}
+    </Banner>
+  );
+}
+
+function BaselineView({ run }: { run: ApplyRun }) {
+  const b = run.baseline;
+  if (!b) return <p className="text-[11.5px] text-ink3">No pre-change Search Console baseline was stored (no synced data for this page’s property).</p>;
+  return (
+    <div className="text-[12px]">
+      <p className="mb-1 text-[11.5px] text-ink3">
+        Pre-change baseline · Search Console {b.windowStart.slice(0, 10)} – {b.windowEnd.slice(0, 10)}
+        {!b.dataComplete && " · incomplete: stored data doesn’t cover the whole window"}
+      </p>
+      <div className="flex flex-wrap gap-x-5 gap-y-1">
+        <span>Clicks <b>{fmtInt(b.clicks)}</b></span>
+        <span>Impressions <b>{fmtInt(b.impressions)}</b></span>
+        <span>CTR <b>{b.impressions > 0 ? fmtPct(b.ctr) : "—"}</b></span>
+        <span>Avg. position <b>{fmtPos(b.position)}</b></span>
+      </div>
+      <p className="mt-1 text-[11px] text-ink3">Before/after comparison comes later; changes in these numbers can’t be attributed to this edit alone.</p>
+    </div>
+  );
+}
+
+function ApplyPanel({ p, canApply, actions }: { p: Proposal; canApply: boolean; actions: ReviewActions }) {
+  const run = p.apply?.run ?? null;
+  const pending = actions.markApplied.isPending && actions.markApplied.variables?.proposalId === p.id;
+  return (
+    <div className="mt-2.5 space-y-2 border-t border-line2 pt-2.5">
+      <p className="text-[12px] font-medium">Apply this change</p>
+      {!run && (
+        <p className="text-[12px] text-ink2">
+          RankFix AI doesn’t edit your website. Set the {CHANGE_LABEL[p.changeType].toLowerCase()} on your site to the approved value exactly, publish it, then confirm below. We’ll recrawl this one page and compare.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {p.status !== "APPLIED" && <CopyButton text={p.proposedValue} />}
+        {canApply && p.apply?.canMarkApplied && (
+          <Button disabled={pending} onClick={() => actions.markApplied.mutate({ proposalId: p.id })}>I’ve applied this</Button>
+        )}
+        {canApply && p.apply?.canRetry && (
+          <Button variant="secondary" disabled={pending} onClick={() => actions.markApplied.mutate({ proposalId: p.id })}>Check again</Button>
+        )}
+      </div>
+      {run && <RunStatus run={run} />}
+      {run && <BaselineView run={run} />}
+      {actions.markApplied.variables?.proposalId === p.id && <ErrorText error={actions.markApplied.error} />}
     </div>
   );
 }

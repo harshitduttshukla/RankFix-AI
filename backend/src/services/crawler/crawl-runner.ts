@@ -15,6 +15,9 @@ import { decodeBody, FetchError, isHtmlContentType, networkPolicy, type NetworkP
 import { createScope, filterCandidates, type CrawlScope } from './scope.js';
 import { defaultSitemapUrls, readSitemaps } from './sitemap.service.js';
 
+/** CrawlJob.discoveryMethod of a one-page crawl made to verify an applied change (Phase 7a). */
+export const VERIFICATION_CRAWL = 'verification';
+
 export interface RunOptions {
   policy?: NetworkPolicy;
   /** Test hook: swap the renderer. */
@@ -65,6 +68,8 @@ class CrawlRun {
     private readonly website: Website,
     private readonly config: CrawlerConfig,
     private readonly opts: RunOptions,
+    /** Verification crawl: fetch only this page (no sitemaps, no link discovery). */
+    private readonly singleUrl: string | null = null,
   ) {
     this.scope = createScope(website);
     this.fetcher = createFetcher(config, this.scope.isSameSite, opts.policy);
@@ -85,6 +90,11 @@ class CrawlRun {
 
   async discover() {
     this.robots = await loadRobotsTxt(this.website.baseUrl, this.fetcher, this.config.userAgent);
+    if (this.singleUrl) {
+      this.enqueue(this.singleUrl);
+      await crawlRepository.update(this.jobId, { robotsFound: this.robots.found, discoveryMethod: VERIFICATION_CRAWL, pagesDiscovered: 1 });
+      return;
+    }
     const declared = this.robots.getSitemaps();
     const sitemaps = await readSitemaps(declared.length ? declared : defaultSitemapUrls(this.website.baseUrl), this.fetcher, {
       isSameSite: this.scope.isSameSite,
@@ -345,7 +355,8 @@ class CrawlRun {
 
     await prisma.$transaction(async (tx) => {
       await tx.crawlJob.update({ where: { id: this.jobId }, data: { ...c, status, error: message, completedAt: new Date() } });
-      await tx.website.update({ where: { id: this.website.id }, data: { lastCrawledAt: new Date() } });
+      // A one-page verification crawl doesn't count as crawling the website.
+      if (!this.singleUrl) await tx.website.update({ where: { id: this.website.id }, data: { lastCrawledAt: new Date() } });
       await auditRepository.record(
         {
           organizationId: this.website.organizationId,
@@ -375,7 +386,9 @@ export async function runCrawl(crawlJobId: string, opts: RunOptions = {}): Promi
   if (!started) throw new Error(`Crawl job ${crawlJobId} is not pending`);
 
   const config = crawlerConfig(job.config as Partial<CrawlerConfig>);
-  const run = new CrawlRun(crawlJobId, job.website, config, opts);
+  const singleUrl = job.discoveryMethod === VERIFICATION_CRAWL ? ((job.config as { singleUrl?: string }).singleUrl ?? null) : null;
+  if (job.discoveryMethod === VERIFICATION_CRAWL && !singleUrl) throw new Error(`Verification crawl ${crawlJobId} has no URL`);
+  const run = new CrawlRun(crawlJobId, job.website, { ...config, maxPages: singleUrl ? 1 : config.maxPages }, opts, singleUrl);
   try {
     await run.discover();
     await run.processAll();

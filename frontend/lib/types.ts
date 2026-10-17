@@ -408,6 +408,41 @@ export interface Proposal {
   approvedAt: string | null;
   rejectionReason: string | null;
   createdAt: string;
+  apply: ProposalApply;
+}
+
+/** Pre-change Search Console metrics stored when the change was marked applied (Phase 7a). */
+export interface ApplyBaseline {
+  windowStart: string;
+  windowEnd: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number | null;
+  daysWithData: number | null;
+  dataComplete: boolean;
+  capturedAt: string;
+}
+
+export type ApplyRunStatus = "APPLYING" | "AWAITING_CHANGE" | "APPLIED" | "FAILED";
+
+export interface ApplyRun {
+  id: string;
+  status: ApplyRunStatus;
+  verificationError: string | null;
+  verificationDetail: { liveVersionNo?: number; httpStatus?: number | null; explanation?: string | null; finalUrl?: string | null } | null;
+  verificationAttempts: number;
+  lastCheckedAt: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+  retryable: boolean;
+  baseline: ApplyBaseline | null;
+}
+
+export interface ProposalApply {
+  canMarkApplied: boolean;
+  canRetry: boolean;
+  run: ApplyRun | null;
 }
 
 export interface RecommendationReview {
@@ -457,6 +492,7 @@ export interface ReviewPayload {
     };
   };
   analysisState: AnalysisState;
+  canAbandon: boolean;
   latestRun: AIRun | null;
   analysis: Analysis | null;
   recommendations: RecommendationReview[];

@@ -12,7 +12,7 @@ import { opportunityConfig } from './opportunity.config.js';
 type Scope = Pick<TenantContext, 'organizationId' | 'projectId'>;
 
 const STATUS_FILTER: Record<OpportunitiesInput['status'], OpportunityStatus[] | undefined> = {
-  open: [...REFRESHABLE, 'PROPOSED'], // in human review (Phase 6) counts as open
+  open: [...REFRESHABLE, 'PROPOSED', 'APPLYING'], // in human review (Phase 6) or awaiting apply verification (Phase 7a)
   dismissed: ['DISMISSED'],
   all: undefined,
 };
