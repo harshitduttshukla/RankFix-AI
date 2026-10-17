@@ -2,6 +2,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
+import type { Logger } from 'pino';
 import { pinoHttp } from 'pino-http';
 import { env } from './config/env.js';
 import { prisma } from './config/database.js';
@@ -13,16 +14,27 @@ import { gscOAuthRoutes, projectGscRoutes } from './routes/gsc.routes.js';
 import { optimizationRoutes } from './routes/optimization.routes.js';
 import { projectRoutes } from './routes/projects.routes.js';
 import { websiteRoutes } from './routes/websites.routes.js';
-import { logger } from './utils/logger.js';
+import { logger as appLogger } from './utils/logger.js';
 
-export function createApp() {
+export interface AppOptions {
+  /** Defaults to the application logger. */
+  logger?: Logger;
+  /** Per-request access logs; off in tests unless asked for. */
+  httpLogging?: boolean;
+  /** Overrides TRUST_PROXY (tests). */
+  trustProxy?: boolean | number | string;
+}
+
+export function createApp(opts: AppOptions = {}) {
+  const logger = opts.logger ?? appLogger;
   const app = express();
 
-  app.set('trust proxy', 1);
+  // Only the configured reverse proxy may set X-Forwarded-For; req.ip keys the rate limits.
+  app.set('trust proxy', opts.trustProxy ?? env.TRUST_PROXY);
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }));
-  app.use(pinoHttp({ logger, autoLogging: env.NODE_ENV !== 'test' }));
+  app.use(pinoHttp({ logger, autoLogging: opts.httpLogging ?? env.NODE_ENV !== 'test' }));
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 

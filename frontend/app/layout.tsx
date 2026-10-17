@@ -8,7 +8,7 @@ const plexSerif = IBM_Plex_Serif({ variable: "--font-plex-serif", subsets: ["lat
 const plexMono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"] });
 
 export const metadata: Metadata = {
-  title: "Blog Optimizer",
+  title: "RankFix AI",
   description: "Improve existing blog pages using Google Search Console evidence",
 };
 

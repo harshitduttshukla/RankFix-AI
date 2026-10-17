@@ -28,7 +28,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     <div className="flex min-h-screen items-center justify-center px-4">
       <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border border-line bg-card p-6">
         <div className="flex items-center gap-2 text-[12px] text-ink3">
-          <span className="h-[9px] w-[9px] rounded-full bg-teal" /> Blog Optimizer
+          <span className="h-[9px] w-[9px] rounded-full bg-teal" /> RankFix AI
         </div>
         <h1>{mode === "login" ? "Sign in" : "Create your account"}</h1>
         {mode === "register" && (

@@ -1,14 +1,51 @@
 import 'dotenv/config';
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
 /** `KEY=` in a .env file means unset. */
 const emptyToUndefined = (v: unknown) => (v === '' ? undefined : v);
+
+const PROXY_NAMES = new Set(['loopback', 'linklocal', 'uniquelocal']);
+const isProxyEntry = (s: string) => {
+  if (PROXY_NAMES.has(s)) return true;
+  const [addr, prefix, extra] = s.split('/');
+  if (extra !== undefined || !addr || !isIP(addr)) return false;
+  return prefix === undefined || /^\d{1,3}$/.test(prefix);
+};
+
+/**
+ * Express "trust proxy": which peers may set X-Forwarded-For (and so req.ip, which keys the rate limits).
+ * false/0: ignore X-Forwarded-For · N: trust N hops · list: trust only these addresses, subnets or
+ * loopback/linklocal/uniquelocal. Blanket "true" is refused: it lets any client choose its own IP.
+ */
+export const TrustProxy = z.preprocess(
+  emptyToUndefined,
+  z
+    .string()
+    .default('loopback')
+    .transform((raw, ctx): boolean | number | string => {
+      const v = raw.trim().toLowerCase();
+      if (v === 'false' || v === '0') return false;
+      if (v === 'true') {
+        ctx.addIssue({ code: 'custom', message: 'TRUST_PROXY=true trusts any client; use a hop count or proxy addresses' });
+        return z.NEVER;
+      }
+      if (/^\d+$/.test(v)) return Number(v);
+      const entries = v.split(',').map((s) => s.trim());
+      if (!entries.every(isProxyEntry)) {
+        ctx.addIssue({ code: 'custom', message: 'TRUST_PROXY must be false, a hop count, or a comma-separated list of IPs/CIDRs/loopback/linklocal/uniquelocal' });
+        return z.NEVER;
+      }
+      return entries.join(',');
+    }),
+);
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().url(),
   FRONTEND_ORIGIN: z.string().url().default('http://localhost:3100'),
+  TRUST_PROXY: TrustProxy,
   JWT_ACCESS_SECRET: z.string().min(32),
   ENCRYPTION_KEY: z
     .string()
@@ -22,7 +59,7 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   GOOGLE_REDIRECT_URI: z.string().url().default('http://localhost:4000/api/gsc/oauth/callback'),
   GSC_INITIAL_SYNC_DAYS: z.coerce.number().int().min(1).max(480).default(90),
-  CRAWLER_USER_AGENT: z.string().min(3).default('BlogPilotBot/1.0'),
+  CRAWLER_USER_AGENT: z.string().min(3).default('RankFixBot/1.0'),
   CRAWLER_MAX_PAGES: z.coerce.number().int().min(1).max(10_000).default(500),
   CRAWLER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   CRAWLER_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),

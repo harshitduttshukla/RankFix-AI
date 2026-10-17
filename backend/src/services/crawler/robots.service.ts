@@ -12,7 +12,7 @@ interface Robot {
 // robots-parser is CommonJS (module.exports = fn); its bundled typings don't resolve under NodeNext.
 const robotsParser = createRequire(import.meta.url)('robots-parser') as (url: string, contents: string) => Robot;
 
-/** The product token robots.txt groups are matched against, e.g. "BlogPilotBot". */
+/** The product token robots.txt groups are matched against, e.g. "RankFixBot". */
 export const robotsToken = (userAgent: string) => userAgent.split('/')[0]!.trim();
 
 export class RobotsRules {

@@ -57,7 +57,7 @@ describe('robots.txt + sitemap discovery against a fixture site', () => {
         'User-agent: *',
         'Disallow: /private/',
         '',
-        'User-agent: BlogPilotBot',
+        'User-agent: RankFixBot',
         'Disallow: /drafts/',
         'Allow: /drafts/public',
         'Crawl-delay: 2',
