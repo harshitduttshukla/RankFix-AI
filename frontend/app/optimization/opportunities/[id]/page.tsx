@@ -33,7 +33,9 @@ export default function OpportunityDetailPage() {
   const r = review.data;
   const canEdit = Boolean(current && current.role !== "VIEWER");
   const canDismiss = canEdit && o && (o.status === "DETECTED" || o.status === "REVIEWED");
-  const canReject = canEdit && o && (o.status === "REVIEWED" || o.status === "PROPOSED");
+  // A proposed or applying opportunity is closed with "Abandon", which also ends any pending verification.
+  const canReject = canEdit && o && o.status === "REVIEWED";
+  const canAbandon = canEdit && Boolean(r?.canAbandon);
 
   return (
     <div className="space-y-6">
@@ -64,6 +66,18 @@ export default function OpportunityDetailPage() {
               Reject opportunity
             </Button>
           )}
+          {canAbandon && (
+            <Button
+              variant="danger"
+              disabled={actions.abandon.isPending}
+              onClick={() => {
+                const reason = window.prompt("Abandon this opportunity? Unapplied proposals are withdrawn and pending checks stop; verified changes stay recorded. Optionally add a reason.");
+                if (reason !== null) actions.abandon.mutate({ reason: reason.trim() || undefined }, { onSuccess: () => void q.refetch() });
+              }}
+            >
+              Abandon
+            </Button>
+          )}
           {canDismiss && (
             <Button
               variant="secondary"
@@ -79,7 +93,7 @@ export default function OpportunityDetailPage() {
           </div>
         </div>
       </div>
-      <ErrorText error={q.error ?? dismiss.error ?? actions.rejectOpportunity.error} />
+      <ErrorText error={q.error ?? dismiss.error ?? actions.rejectOpportunity.error ?? actions.abandon.error} />
       {o && (
         <>
           <div className="grid gap-[13px] lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">

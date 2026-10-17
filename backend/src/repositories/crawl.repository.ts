@@ -50,16 +50,17 @@ const crawlSelect = {
 } as const;
 
 export const crawlRepository = {
+  /** Active full crawls. One-page verification crawls (discoveryMethod "verification") don't block a full crawl. */
   findActive(scope: Scope, websiteId: string, db: Db = prisma) {
     return db.crawlJob.findFirst({
-      where: { ...t(scope), websiteId, status: { in: ACTIVE_CRAWL } },
+      where: { ...t(scope), websiteId, status: { in: ACTIVE_CRAWL }, OR: [{ discoveryMethod: null }, { discoveryMethod: { not: 'verification' } }] },
       select: crawlSelect,
     });
   },
 
-  create(scope: Scope & { userId: string }, websiteId: string, config: Prisma.InputJsonValue, db: Db = prisma) {
+  create(scope: Scope & { userId: string | null }, websiteId: string, config: Prisma.InputJsonValue, db: Db = prisma, discoveryMethod?: string) {
     return db.crawlJob.create({
-      data: { organizationId: scope.organizationId, projectId: scope.projectId, websiteId, requestedById: scope.userId, config },
+      data: { organizationId: scope.organizationId, projectId: scope.projectId, websiteId, requestedById: scope.userId, config, discoveryMethod },
       select: crawlSelect,
     });
   },

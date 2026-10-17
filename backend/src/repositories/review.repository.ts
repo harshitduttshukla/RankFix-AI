@@ -34,6 +34,25 @@ export const proposalSelect = {
   rejectionReason: true,
   createdAt: true,
   pageVersion: { select: { versionNo: true } },
+  // Phase 7a: manual apply + verification run and its pre-change baseline.
+  run: {
+    select: {
+      id: true,
+      status: true,
+      verificationError: true,
+      verificationDetail: true,
+      verificationAttempts: true,
+      lastCheckedAt: true,
+      verifiedAt: true,
+      newVersionId: true,
+      previousVersionId: true,
+      createdAt: true,
+      measurements: {
+        where: { kind: 'BASELINE' },
+        select: { windowStart: true, windowEnd: true, clicks: true, impressions: true, ctr: true, position: true, daysWithData: true, dataComplete: true, capturedAt: true },
+      },
+    },
+  },
 } as const;
 
 export const draftSelect = { id: true, revision: true, value: true, note: true, model: true, promptVersion: true, target: true, sectionKey: true, sourceTextHash: true, validation: true, requestedById: true, createdAt: true } as const;

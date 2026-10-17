@@ -6,12 +6,14 @@ import { failInterruptedCrawls, startCrawlWorker } from './workers/crawl.worker.
 import { startGscWorker } from './workers/gsc.worker.js';
 import { failInterruptedDetections, startOpportunityWorker } from './workers/opportunity.worker.js';
 import { failInterruptedAIAnalyses, startAIAnalysisWorker } from './workers/ai-analysis.worker.js';
+import { resumeInterruptedVerifications, startApplyVerifyWorker } from './workers/apply-verify.worker.js';
 
 await failInterruptedCrawls();
 await failInterruptedDetections();
 await failInterruptedAIAnalyses();
-const workers = [startGscWorker(), startCrawlWorker(), startOpportunityWorker(), startAIAnalysisWorker()];
-logger.info('Workers started: gsc-sync, website-crawl, opportunity-detect, ai-analysis');
+await resumeInterruptedVerifications();
+const workers = [startGscWorker(), startCrawlWorker(), startOpportunityWorker(), startAIAnalysisWorker(), startApplyVerifyWorker()];
+logger.info('Workers started: gsc-sync, website-crawl, opportunity-detect, ai-analysis, apply-verify');
 if (!isAiConfigured()) logger.warn('AI analysis is not configured (provider key / AI_MODEL); analysis jobs will fail');
 
 async function shutdown(signal: string) {

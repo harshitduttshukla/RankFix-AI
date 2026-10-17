@@ -619,31 +619,46 @@ model OptimizationApproval {
 }
 
 enum RunStatus {
-  APPLYING
-  APPLIED
-  FAILED
+  APPLYING // verification queued or running
+  APPLIED // live page verified to carry the approved value
+  FAILED // verification failed (verificationError); retryable unless ABANDONED
+  AWAITING_CHANGE // live page still shows the previous value; retryable
+}
+
+enum ApplyMethod {
+  MANUAL // the customer edited their site; RankFix AI only verifies by recrawl (Phase 7a)
 }
 
 model OptimizationRun {
-  id                String    @id @default(cuid())
-  organizationId    String
-  projectId         String
-  opportunityId     String
-  proposalId        String    @unique
-  pageId            String
-  previousVersionId String // PRE_UPDATE snapshot
-  newVersionId      String? // OPTIMIZATION version
-  status            RunStatus
-  error             String?
-  appliedById       String
-  appliedAt         DateTime?
-  createdAt         DateTime  @default(now())
+  id                   String      @id @default(cuid())
+  organizationId       String
+  projectId            String
+  opportunityId        String
+  proposalId           String      @unique
+  pageId               String
+  previousVersionId    String // PRE_UPDATE snapshot
+  newVersionId         String? // OPTIMIZATION version
+  status               RunStatus
+  error                String?
+  appliedById          String
+  appliedAt            DateTime? // when verification confirmed the change
+  method               ApplyMethod @default(MANUAL)
+  // Verification (Phase 7a). Each request bumps verificationAttempts; a worker only acts on the attempt it was queued for.
+  verificationAttempts Int         @default(0)
+  verificationError    String? // CONTENT_CONFLICT | TARGET_MISSING | PAGE_GONE | PAGE_REDIRECTED | FETCH_FAILED | ... | ABANDONED
+  verificationDetail   Json? // structured outcome (codes, versions, crawl job); never raw HTML
+  lastCrawlJobId       String?
+  lastCheckedAt        DateTime?
+  verifiedAt           DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @default(now()) @updatedAt
 
   opportunity  OptimizationOpportunity   @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   proposal     OptimizationProposal      @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   measurements OptimizationMeasurement[]
 
   @@index([organizationId, projectId])
+  @@index([status])
 }
 
 enum MeasurementKind {
@@ -661,7 +676,10 @@ model OptimizationMeasurement {
   clicks         Int
   impressions    Int
   ctr            Float
-  position       Float
+  position       Float? // null: no impressions in the window (no position exists)
+  propertyId     String? // GSC property the metrics were read from
+  pageUrl        String? // normalized page URL the metrics were read for
+  daysWithData   Int? // days in the window with a stored page-total row
   queries        Json // top queries in window
   dataComplete   Boolean // false if GSC data for window not yet final
   capturedAt     DateTime        @default(now())

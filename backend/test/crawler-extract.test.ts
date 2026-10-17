@@ -6,7 +6,7 @@ import { createScope } from '../src/services/crawler/scope.js';
 
 const html = readFileSync(new URL('./fixtures/blog-post.html', import.meta.url), 'utf8');
 const scope = createScope({ hostname: 'acme.test', blogPathPrefix: null });
-const opts: ExtractOptions = { pageUrl: 'https://acme.test/blog/react', isSameSite: scope.isSameSite, minContentWords: 40, userAgentToken: 'BlogPilotBot' };
+const opts: ExtractOptions = { pageUrl: 'https://acme.test/blog/react', isSameSite: scope.isSameSite, minContentWords: 40, userAgentToken: 'RankFixBot' };
 const page = extractPage(html, opts);
 
 describe('metadata extraction', () => {
@@ -35,7 +35,7 @@ describe('metadata extraction', () => {
 
   it('detects noindex from meta robots, bot-specific meta, or X-Robots-Tag', () => {
     expect(extractPage('<meta name="robots" content="noindex,follow"><p>x</p>', opts).noindex).toBe(true);
-    expect(extractPage('<meta name="blogpilotbot" content="none"><p>x</p>', opts).noindex).toBe(true);
+    expect(extractPage('<meta name="rankfixbot" content="none"><p>x</p>', opts).noindex).toBe(true);
     expect(extractPage('<p>x</p>', { ...opts, xRobotsTag: 'noindex' }).noindex).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { opportunityController } from '../controllers/opportunity.controller.js';
+import { applyController } from '../controllers/apply.controller.js';
 import { reviewController } from '../controllers/review.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
 import { requireProjectAccess } from '../middleware/project-access.middleware.js';
@@ -60,3 +61,7 @@ optimizationRoutes.post(`${prop}/approve`, requireProjectAccess('EDITOR'), valid
 optimizationRoutes.post(`${prop}/reject`, requireProjectAccess('EDITOR'), validate({ params: ProposalParams, body: ReasonBody }), reviewController.rejectProposal);
 optimizationRoutes.post(`${opp}/:id/reject`, requireProjectAccess('EDITOR'), validate({ params: OpportunityParams, body: ReasonBody }), reviewController.rejectOpportunity);
 optimizationRoutes.post(`${opp}/:id/reanalyze`, requireProjectAccess('EDITOR'), validate({ params: OpportunityParams }), aiLimiter, reviewController.reanalyze);
+
+// Phase 7a: manual apply + recrawl verification. Never writes to the website.
+optimizationRoutes.post(`${prop}/mark-applied`, requireProjectAccess('EDITOR'), validate({ params: ProposalParams }), applyController.markApplied);
+optimizationRoutes.post(`${opp}/:id/abandon`, requireProjectAccess('EDITOR'), validate({ params: OpportunityParams, body: ReasonBody }), applyController.abandon);

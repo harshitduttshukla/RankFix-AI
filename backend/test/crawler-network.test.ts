@@ -5,7 +5,7 @@ import { createScope, filterCandidates } from '../src/services/crawler/scope.js'
 import { FixtureSite, testPolicy } from './fixture-server.js';
 
 const opts = (policy: NetworkPolicy, extra: Partial<Parameters<typeof safeFetch>[1]> = {}) => ({
-  userAgent: 'BlogPilotBot/1.0',
+  userAgent: 'RankFixBot/1.0',
   timeoutMs: 2000,
   maxBytes: 10_000,
   maxRedirects: 3,
@@ -72,7 +72,7 @@ describe('safeFetch against a fixture server', () => {
     const res = await safeFetch(site.url('blog.test', '/ok'), opts(policy));
     expect(res.status).toBe(200);
     expect(res.body.toString()).toContain('hello');
-    expect(site.userAgents.at(-1)).toBe('BlogPilotBot/1.0');
+    expect(site.userAgents.at(-1)).toBe('RankFixBot/1.0');
   });
 
   it('follows redirects and reports the chain', async () => {

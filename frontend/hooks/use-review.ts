@@ -13,7 +13,12 @@ export function useReview(projectId: string | undefined, id: string) {
     queryFn: () => api<ReviewPayload>(`${base(projectId!, id)}/review`),
     enabled: Boolean(projectId),
     // Poll only while the AI run is in flight.
-    refetchInterval: (q) => (q.state.data?.analysisState === "QUEUED" || q.state.data?.analysisState === "RUNNING" ? 3000 : false),
+    // Poll only while the AI run or an apply verification is in flight.
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (d?.analysisState === "QUEUED" || d?.analysisState === "RUNNING") return 3000;
+      return d?.recommendations.some((r) => r.proposals.some((p) => p.apply?.run?.status === "APPLYING")) ? 3000 : false;
+    },
   });
 }
 
@@ -75,6 +80,12 @@ export function useReviewActions(projectId: string, id: string) {
       onSuccess,
     }),
     rejectOpportunity: useMutation({ mutationFn: (v: { reason?: string }) => post<OpportunityDetail>("/reject", v), onSuccess }),
+    // Phase 7a: the customer applied the change themselves; RankFix AI recrawls the page to verify it.
+    markApplied: useMutation({
+      mutationFn: ({ proposalId }: { proposalId: string }) => post<{ queued: boolean; review: ReviewPayload }>(`/proposals/${proposalId}/mark-applied`),
+      onSuccess: (data) => onSuccess(data.review),
+    }),
+    abandon: useMutation({ mutationFn: (v: { reason?: string }) => post<ReviewPayload>("/abandon", v), onSuccess }),
   };
 }
 

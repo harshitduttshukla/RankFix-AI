@@ -124,7 +124,7 @@ export class OpenRouterProvider implements AIProvider {
         headers: {
           Authorization: `Bearer ${this.cfg.apiKey}`,
           'Content-Type': 'application/json',
-          'X-Title': 'BlogPilot',
+          'X-Title': 'RankFix AI',
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(this.cfg.timeoutMs),

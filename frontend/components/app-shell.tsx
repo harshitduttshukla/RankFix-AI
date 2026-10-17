@@ -49,7 +49,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="border-b border-line2 px-[17px] pb-[13px] pt-[17px]">
           <div className="flex items-center gap-2">
             <span className="h-[9px] w-[9px] rounded-full bg-teal" />
-            <span className="font-serif text-[15px] font-medium">Blog Optimizer</span>
+            <span className="font-serif text-[15px] font-medium">RankFix AI</span>
           </div>
           <small className="mt-[3px] block text-[11.5px] text-ink3">Existing pages · GSC evidence · human approval</small>
         </div>

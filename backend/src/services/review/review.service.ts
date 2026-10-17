@@ -18,6 +18,7 @@ import { bodyMetrics } from '../ai/section-body.js';
 import { opportunityAnalysisService } from '../ai/opportunity-analysis.service.js';
 import { originalityService, originalityTarget, type OriginalityDecision } from '../originality/originality.service.js';
 import { opportunityService } from '../optimization/opportunity.service.js';
+import { applyView } from '../apply/apply.service.js';
 import { buildProposalValues, defaultChangeType, ProposalInputError, proposalHash, type VersionValues } from './proposal-builder.js';
 import { evaluateStaleness, type EvidenceSnapshot, type StaleReason } from './staleness.js';
 
@@ -278,6 +279,8 @@ export const reviewService = {
         currentVersion: page.currentVersion,
       },
       analysisState: state,
+      // Phase 7a: close the unapplied remainder of a proposed/applying opportunity.
+      canAbandon: opp.status === 'PROPOSED' || opp.status === 'APPLYING',
       latestRun,
       analysis: analysis && {
         id: analysis.id,
@@ -339,7 +342,7 @@ export const reviewService = {
             requireCheck: originalityCfg.requireCheck,
             checks: checks.get(r.id) ?? [],
           },
-          proposals: r.proposals.map((p) => proposalView(p, page.currentVersionId)),
+          proposals: r.proposals.map((p) => ({ ...proposalView(p, page.currentVersionId), run: undefined, apply: applyView(p, opp.status, p.run) })),
         };
       }),
     };
